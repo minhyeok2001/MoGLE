@@ -17,8 +17,8 @@ args = ModelArgs(
 args.num_experts = 3
 args.r = 4
 args.lora_alpha = 8
-model = TransformerWithSingleLoRA(args=args)
-model2 = TransformerWithMoLE(args=args)
+model = TransformerWithSingleLoRA(params=args)
+model2 = TransformerWithMoLE(params=args)
 
 B, T = 2, 5
 x = torch.randn(B, T, args.dim)
