@@ -32,6 +32,7 @@ class ModelArgs:
     r : int = 16
     lora_alpha : int =32
     num_experts : int = 10
+    gate_norm_eps : float = 1e-6
 
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
