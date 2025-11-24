@@ -3,6 +3,20 @@ import torch.nn as nn
 from llama3.llama.single_LORA_model import TransformerWithSingleLoRA
 from llama3.llama.multi_LORA_model import TransformerWithMoLE 
 from llama3.llama.utils import ModelArgs
+import fairscale.nn.model_parallel.initialize as fs_init
+
+def init_model_parallel_if_needed(mp_size=1):
+    if not torch.distributed.is_initialized():
+        torch.distributed.init_process_group(
+            backend="nccl" if torch.cuda.is_available() else "gloo",
+            init_method="tcp://127.0.0.1:29500",
+            rank=0,
+            world_size=1,
+        )
+    if fs_init.get_model_parallel_world_size() != mp_size:
+        fs_init.initialize_model_parallel(mp_size)
+
+init_model_parallel_if_needed(1)
 
 args = ModelArgs(
     dim=64,             
