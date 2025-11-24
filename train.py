@@ -6,20 +6,28 @@ from llama3.llama.utils import ModelArgs
 
 import torch.distributed as dist
 import fairscale.nn.model_parallel.initialize as fs_init
+import os
+import torch
+import torch.distributed as dist
+import fairscale.nn.model_parallel.initialize as fs_init
 
+#MP 설정 끄는 부분이 필요하다고함
 def init_model_parallel_if_needed(mp_size=1):
-    # Torch distributed가 안 켜져 있으면 켜기
+    # 1) torch.distributed init 먼저!!!!
     if not dist.is_initialized():
-        dist.init_process_group("nccl", rank=0, world_size=1)
+        dist.init_process_group(
+            backend="nccl",
+            init_method="tcp://127.0.0.1:29500",
+            rank=0,
+            world_size=1
+        )
 
-    # model parallel이 초기화 안 됐으면 해주기
+    # 2) model-parallel 그룹 초기화
     if not fs_init.model_parallel_is_initialized():
         fs_init.initialize_model_parallel(mp_size)
 
-    # 디바이스 고정
     torch.cuda.set_device(0)
-    
-init_model_parallel_if_needed(1)
+
 
 args = ModelArgs(
     dim=64,             
