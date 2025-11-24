@@ -32,6 +32,7 @@ class MoLEModule(nn.Module):
         self.num_experts = num_experts
         self.r = r
         self.scaling = lora_alpha / r
+        self.gate_norm_eps = gate_norm_eps
 
         in_dim = base_layer.in_features
         out_dim = base_layer.out_features

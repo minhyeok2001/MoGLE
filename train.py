@@ -39,10 +39,12 @@ args = ModelArgs(
     multiple_of=16,
     max_batch_size=4,
     max_seq_len=32,
+    num_experts = 3,
+    r = 4,
+    lora_alpha = 8,
+    gate_norm_eps = 1e-6
 )
-args.num_experts = 3
-args.r = 4
-args.lora_alpha = 8
+
 model = TransformerWithSingleLoRA(params=args)
 model2 = TransformerWithMoLE(params=args)
 
