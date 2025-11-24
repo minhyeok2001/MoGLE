@@ -45,8 +45,8 @@ args = ModelArgs(
     gate_norm_eps = 1e-6
 )
 
-model = TransformerWithSingleLoRA(params=args)
-model2 = TransformerWithMoLE(params=args)
+model = TransformerWithSingleLoRA(params=args).to("cuda")
+model2 = TransformerWithMoLE(params=args).to("cuda")
 
 B, T = 2, 5
 vocab = args.vocab_size
