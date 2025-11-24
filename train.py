@@ -28,6 +28,7 @@ def init_model_parallel_if_needed(mp_size=1):
 
     torch.cuda.set_device(0)
 
+init_model_parallel_if_needed()
 
 args = ModelArgs(
     dim=64,             
