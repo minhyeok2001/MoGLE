@@ -13,7 +13,7 @@ from fairscale.nn.model_parallel.layers import (
 )
 from torch import nn
 
-from llama.utils import *
+from .utils import *
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

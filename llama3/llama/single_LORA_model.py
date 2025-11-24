@@ -11,7 +11,7 @@ from fairscale.nn.model_parallel.layers import (
     VocabParallelEmbedding,
 )
 from torch import nn
-from llama.utils import *
+from .utils import *
 
 
 class LoraModule(nn.Module):
