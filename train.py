@@ -49,7 +49,8 @@ model = TransformerWithSingleLoRA(params=args)
 model2 = TransformerWithMoLE(params=args)
 
 B, T = 2, 5
-x = torch.randn(B, T, args.dim)
+vocab = args.vocab_size
+x = torch.randint(0, vocab, (B, T), device="cuda")
 
 start_pos = 0
 out = model(x,start_pos)
