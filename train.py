@@ -3,19 +3,22 @@ import torch.nn as nn
 from llama3.llama.single_LORA_model import TransformerWithSingleLoRA
 from llama3.llama.multi_LORA_model import TransformerWithMoLE 
 from llama3.llama.utils import ModelArgs
+
+import torch.distributed as dist
 import fairscale.nn.model_parallel.initialize as fs_init
 
 def init_model_parallel_if_needed(mp_size=1):
-    if not torch.distributed.is_initialized():
-        torch.distributed.init_process_group(
-            backend="nccl" if torch.cuda.is_available() else "gloo",
-            init_method="tcp://127.0.0.1:29500",
-            rank=0,
-            world_size=1,
-        )
-    if fs_init.get_model_parallel_world_size() != mp_size:
+    # Torch distributed가 안 켜져 있으면 켜기
+    if not dist.is_initialized():
+        dist.init_process_group("nccl", rank=0, world_size=1)
+
+    # model parallel이 초기화 안 됐으면 해주기
+    if not fs_init.model_parallel_is_initialized():
         fs_init.initialize_model_parallel(mp_size)
 
+    # 디바이스 고정
+    torch.cuda.set_device(0)
+    
 init_model_parallel_if_needed(1)
 
 args = ModelArgs(
