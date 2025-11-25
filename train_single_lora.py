@@ -50,7 +50,7 @@ def run(args):
         cfg = json.load(f)
     vocab_size = cfg["vocab_size"]
     
-    model_args = ModelArgs(vocab_size=vocab_size)
+    model_args = ModelArgs(vocab_size=vocab_size,max_batch_size=2,max_seq_len=32)
     model = TransformerWithSingleLoRA(model_args).to("cuda")
     
     state = torch.load(ckpt_path, map_location="cpu")
