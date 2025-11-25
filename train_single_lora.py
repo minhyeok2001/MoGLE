@@ -54,7 +54,18 @@ def run(args):
     model = TransformerWithSingleLoRA(model_args).to("cuda")
     
     state = torch.load(ckpt_path, map_location="cpu")
-    model.load_state_dict(state, strict=False)
+    missing_keys, unexpected_keys = model.load_state_dict(state, strict=False)
+    real_missing = [k for k in missing_keys if "lora_" not in k]
+
+    print("=== load_state_dict 결과 ===")
+    print(f"총 missing_keys 수: {len(missing_keys)}")
+    print(f"총 unexpected_keys 수: {len(unexpected_keys)}")
+
+    print("\n[LoRA 제외 missing keys]")
+    for k in real_missing[:50]:
+        print("  ", k)
+    if len(real_missing) == 0:
+        print("  (없음)")
 
     for name, param in model.named_parameters():
         if "lora_" in name:
