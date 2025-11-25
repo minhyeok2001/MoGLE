@@ -55,17 +55,12 @@ def run(args):
     
     state = torch.load(ckpt_path, map_location="cpu")
     missing_keys, unexpected_keys = model.load_state_dict(state, strict=False)
-    real_missing = [k for k in missing_keys if "lora_" not in k]
 
-    print("=== load_state_dict 결과 ===")
-    print(f"총 missing_keys 수: {len(missing_keys)}")
-    print(f"총 unexpected_keys 수: {len(unexpected_keys)}")
-
-    print("\n[LoRA 제외 missing keys]")
-    for k in real_missing[:50]:
-        print("  ", k)
-    if len(real_missing) == 0:
-        print("  (없음)")
+    print("\n==================== Pretrain Load Check ====================\n")
+    for name, param in model.named_parameters():
+        loaded = (name not in missing_keys)
+        print(f"{name:50s} loaded={str(loaded):5s}  requires_grad={param.requires_grad}")
+    print("\n==============================================================\n")
 
     for name, param in model.named_parameters():
         if "lora_" in name:
