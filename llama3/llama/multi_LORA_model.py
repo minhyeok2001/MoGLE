@@ -302,8 +302,7 @@ class TransformerWithMoLE(nn.Module):
             params.max_seq_len * 2,
             params.rope_theta,
         )
-
-    @torch.inference_mode()
+        
     def forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)

@@ -234,7 +234,6 @@ class TransformerWithSingleLoRA(nn.Module):
             params.rope_theta,
         )
 
-    @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)

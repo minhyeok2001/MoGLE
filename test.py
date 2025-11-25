@@ -1,13 +1,12 @@
+import os
 import torch
 import torch.nn as nn
 from llama3.llama.single_LORA_model import TransformerWithSingleLoRA
 from llama3.llama.multi_LORA_model import TransformerWithMoLE 
 from llama3.llama.utils import ModelArgs
+from typing import Optional, Tuple
+import argparse
 
-import torch.distributed as dist
-import fairscale.nn.model_parallel.initialize as fs_init
-import os
-import torch
 import torch.distributed as dist
 import fairscale.nn.model_parallel.initialize as fs_init
 
@@ -29,6 +28,7 @@ def init_model_parallel_if_needed(mp_size=1):
     torch.cuda.set_device(0)
 
 init_model_parallel_if_needed()
+
 
 args = ModelArgs(
     dim=64,             
@@ -65,3 +65,8 @@ print("output shape:", out.shape)
 
 print("====== multi-lora ======")
 print("output shape:", out2.shape)
+
+
+
+
+torch.distributed.destroy_process_group()
