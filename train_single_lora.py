@@ -3,6 +3,7 @@ import argparse
 import torch
 import torch.nn as nn
 import sentencepiece as spm
+import json
 
 from tqdm import tqdm
 from typing import Optional, Tuple
@@ -35,23 +36,22 @@ Single Lora 학습 FLOW
 def run(args):
     
     category = args.category
-    ckpt_path = args.ckpt_path
-    tokenizer_path = args.tokenizer_path
+    base_path = args.base_path
+    
+    ckpt_path = os.path.join(base_path,"consolidated.00.pth")
+    json_path = os.path.join(base_path,"params.json")
     
     ## 여기서 전처리코드 한번 거치고, 거기서 args.category 받아서 해당하는 데이터만 가져오면 좋을듯
 
     train_set = [torch.randint(0,100, (32,)) for _ in range(32)]
     train_loader = torch.utils.data.DataLoader(train_set,batch_size=16,num_workers=4,shuffle=False)
     
-
-    sp = spm.SentencePieceProcessor()
-    sp.load(tokenizer_path)
-
-    vocab_size = sp.vocab_size()
+    with open(json_path, "r") as f:
+        cfg = json.load(f)
+    vocab_size = cfg["vocab_size"]
     
     model_args = ModelArgs(vocab_size=vocab_size)
     model = TransformerWithSingleLoRA(model_args).to("cuda")
-    
     
     state = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(state, strict=False)
@@ -98,8 +98,7 @@ def run(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--category",type=str,required=True)
-    parser.add_argument("--ckpt_path",type=str,default="/root/.llama/checkpoints/Llama3.1-8B-Instruct/consolidated.00.pth") # 추후에 colab에서 돌려보고 기본 path 추가
-    parser.add_argument("--tokenizer_path",type=str,default="/root/.llama/checkpoints/Llama3.1-8B-Instruct/tokenizer.model")
+    parser.add_argument("--base_path",type=str,default="/root/.llama/checkpoints/Llama3.1-8B-Instruct") # 추후에 colab에서 돌려보고 기본 path 추가
     
     args = parser.parse_args()
     
