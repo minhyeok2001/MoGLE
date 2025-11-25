@@ -40,8 +40,8 @@ def run(args):
     train_set = [torch.randint(0,100, (32,)) for _ in range(32)]
     train_loader = torch.utils.data.DataLoader(train_set,batch_size=16,num_workers=4,shuffle=False)
     
-    
-    model = TransformerWithSingleLoRA().to("cuda")
+    model_args = ModelArgs()
+    model = TransformerWithSingleLoRA(model_args).to("cuda")
     
     state = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(state, strict=False)
