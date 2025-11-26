@@ -54,7 +54,7 @@ def run(args):
         n_layers=cfg["n_layers"],
         n_heads=cfg["n_heads"],
         n_kv_heads=cfg["n_kv_heads"],
-        vocab_size=cfg["vocab_size"],
+        vocab_size=cfg["vocab_size"], ##얘 왜 -1로 되어있는지 모르겟는데 ?
         ffn_dim_multiplier=cfg["ffn_dim_multiplier"],
         multiple_of=cfg["multiple_of"],
         norm_eps=cfg["norm_eps"],
@@ -64,6 +64,7 @@ def run(args):
         r=16,
         lora_alpha=32,
     )
+    
     
     model_args = ModelArgs()
     model = TransformerWithSingleLoRA(model_args).to("cuda")
