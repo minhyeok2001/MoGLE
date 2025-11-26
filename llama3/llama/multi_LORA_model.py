@@ -53,8 +53,7 @@ class MoLEModule(nn.Module):
         expert_outs = []
         for k in range(self.num_experts):
             lora_k = self.lora_B[k](self.lora_A[k](x)) * self.scaling
-            E_k = base_out + lora_k
-            expert_outs.append(E_k)
+            expert_outs.append(lora_k)
             
         E = torch.stack(expert_outs, dim=0)
 
@@ -279,13 +278,17 @@ class FeedForwardWithMoLE(nn.Module):
         h1_base = self.w1(x)
         h3_base = self.w3(x)
 
-        h1 = self.mole_w1(x, h1_base)
-        h3 = self.mole_w3(x, h3_base)
+        h1_delta = self.mole_w1(x)
+        h3_delta = self.mole_w3(x)
+
+        h1 = h1_base + h1_delta
+        h3 = h3_base + h3_delta
 
         h = F.silu(h1) * h3
 
         h2_base = self.w2(h)
-        out = self.mole_w2(h, h2_base)
+        h2_delta = self.mole_w2(h)
+        out = h2_base + h2_delta
 
         return out
 

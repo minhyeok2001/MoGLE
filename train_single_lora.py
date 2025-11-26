@@ -119,6 +119,7 @@ if __name__ == "__main__":
     parser.add_argument("--base_path",type=str,default="/root/.llama/checkpoints/Llama3.1-8B-Instruct")
     parser.add_argument("--max_batch_size",type=int,default=2)
     parser.add_argument("--max_seq_len",type=int,default=32)
+    parser.add_argument("")
     
     args = parser.parse_args()
     
