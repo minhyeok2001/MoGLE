@@ -45,7 +45,7 @@ def run(args):
     
     ## 여기서 전처리코드 한번 거치고, 거기서 args.category 받아서 해당하는 데이터만 가져오면 좋을듯
 
-    train_set = [torch.randint(0,100, (32,)) for _ in range(8)]
+    train_set = [torch.randint(0,100, (max_seq_len-1,)) for _ in range(8)]
     train_loader = torch.utils.data.DataLoader(train_set,batch_size=max_batch_size,num_workers=4,shuffle=False)
     
     with open(json_path, "r") as f:
