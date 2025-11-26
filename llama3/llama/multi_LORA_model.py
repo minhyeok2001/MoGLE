@@ -1,4 +1,3 @@
-
 import math
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -21,24 +20,18 @@ import torch.nn.functional as F
 class MoLEModule(nn.Module):
     def __init__(
         self,
-        base_layer: nn.Module,
+        in_dim: int,
+        out_dim: int,
         num_experts: int,
         r: int = 16,
         lora_alpha: int = 32,
         gate_norm_eps: float = 1e-6,
     ):
         super().__init__()
-        self.base = base_layer
         self.num_experts = num_experts
         self.r = r
         self.scaling = lora_alpha / r
         self.gate_norm_eps = gate_norm_eps
-
-        in_dim = base_layer.in_features
-        out_dim = base_layer.out_features
-
-        for p in self.base.parameters():
-            p.requires_grad_(False)
 
         self.lora_A = nn.ModuleList([nn.Linear(in_dim, r, bias=False) for _ in range(num_experts)])
         self.lora_B = nn.ModuleList([nn.Linear(r, out_dim, bias=False) for _ in range(num_experts)])
@@ -56,7 +49,6 @@ class MoLEModule(nn.Module):
         self.norm = nn.LayerNorm(last_dim, eps=self.gate_norm_eps).to(device)
 
     def forward(self, x):
-        base_out = self.base(x)
 
         expert_outs = []
         for k in range(self.num_experts):
@@ -98,21 +90,21 @@ class AttentionWithMoLE(nn.Module):
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
 
-        wq_base = ColumnParallelLinear(
+        self.wq = ColumnParallelLinear(
             args.dim,
             args.n_heads * self.head_dim,
             bias=False,
             gather_output=False,
             init_method=lambda x: x,
         )
-        wk_base = ColumnParallelLinear(
+        self.wk = ColumnParallelLinear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
             gather_output=False,
             init_method=lambda x: x,
         )
-        wv_base = ColumnParallelLinear(
+        self.wv = ColumnParallelLinear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
@@ -127,20 +119,29 @@ class AttentionWithMoLE(nn.Module):
             init_method=lambda x: x,
         )
 
-        self.wq = MoLEModule(
-            wq_base, num_experts=args.num_experts,
-            r=args.r, lora_alpha=args.lora_alpha,
-            gate_norm_eps=args.gate_norm_eps
+        self.mole_wq = MoLEModule(
+            in_dim=args.dim,
+            out_dim=args.n_heads * self.head_dim,
+            num_experts=args.num_experts,
+            r=args.r,
+            lora_alpha=args.lora_alpha,
+            gate_norm_eps=args.gate_norm_eps,
         )
-        self.wk = MoLEModule(
-            wk_base, num_experts=args.num_experts,
-            r=args.r, lora_alpha=args.lora_alpha,
-            gate_norm_eps=args.gate_norm_eps
+        self.mole_wk = MoLEModule(
+            in_dim=args.dim,
+            out_dim=self.n_kv_heads * self.head_dim,
+            num_experts=args.num_experts,
+            r=args.r,
+            lora_alpha=args.lora_alpha,
+            gate_norm_eps=args.gate_norm_eps,
         )
-        self.wv = MoLEModule(
-            wv_base, num_experts=args.num_experts,
-            r=args.r, lora_alpha=args.lora_alpha,
-            gate_norm_eps=args.gate_norm_eps
+        self.mole_wv = MoLEModule(
+            in_dim=args.dim,
+            out_dim=self.n_kv_heads * self.head_dim,
+            num_experts=args.num_experts,
+            r=args.r,
+            lora_alpha=args.lora_alpha,
+            gate_norm_eps=args.gate_norm_eps,
         )
 
         self.cache_k = torch.zeros(
@@ -169,22 +170,35 @@ class AttentionWithMoLE(nn.Module):
     ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        
+        q_delta = self.mole_wq(x)
+        k_delta = self.mole_wk(x)
+        v_delta = self.mole_wv(x)
 
+        xq = xq + q_delta
+        xk = xk + k_delta
+        xv = xv + v_delta
+        
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+        
+        if self.training:
+            keys = xk
+            values = xv
+            
+        else : 
+            self.cache_k = self.cache_k.to(xq)
+            self.cache_v = self.cache_v.to(xq)
 
-        self.cache_k = self.cache_k.to(xq)
-        self.cache_v = self.cache_v.to(xq)
+            self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
+            self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
 
-        self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
-        self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
-
-        keys = self.cache_k[:bsz, : start_pos + seqlen]
-        values = self.cache_v[:bsz, : start_pos + seqlen]
-
+            keys = self.cache_k[:bsz, : start_pos + seqlen]
+            values = self.cache_v[:bsz, : start_pos + seqlen]
+            
         # repeat k/v heads if n_kv_heads < n_heads
         keys = repeat_kv(
             keys, self.n_rep
@@ -226,22 +240,54 @@ class FeedForwardWithMoLE(nn.Module):
             hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
         
-        w1_base = ColumnParallelLinear(
+        self.w1 = ColumnParallelLinear(
             dim, hidden_dim, bias=False, gather_output=False, init_method=lambda x: x
         )
-        w2_base = RowParallelLinear(
+        self.w2 = RowParallelLinear(
             hidden_dim, dim, bias=False, input_is_parallel=True, init_method=lambda x: x
         )
-        w3_base = ColumnParallelLinear(
+        self.w3 = ColumnParallelLinear(
             dim, hidden_dim, bias=False, gather_output=False, init_method=lambda x: x
         )
 
-        self.w1 = MoLEModule(w1_base, num_experts, r, lora_alpha, gate_norm_eps)
-        self.w2 = MoLEModule(w2_base, num_experts, r, lora_alpha, gate_norm_eps)
-        self.w3 = MoLEModule(w3_base, num_experts, r, lora_alpha, gate_norm_eps)
-        
+        self.mole_w1 = MoLEModule(
+            in_dim=dim,
+            out_dim=hidden_dim,
+            num_experts=num_experts,
+            r=r,
+            lora_alpha=lora_alpha,
+            gate_norm_eps=gate_norm_eps,
+        )
+        self.mole_w2 = MoLEModule(
+            in_dim=hidden_dim,
+            out_dim=dim,
+            num_experts=num_experts,
+            r=r,
+            lora_alpha=lora_alpha,
+            gate_norm_eps=gate_norm_eps,
+        )
+        self.mole_w3 = MoLEModule(
+            in_dim=dim,
+            out_dim=hidden_dim,
+            num_experts=num_experts,
+            r=r,
+            lora_alpha=lora_alpha,
+            gate_norm_eps=gate_norm_eps,
+        )
+    
     def forward(self, x):
-        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        h1_base = self.w1(x)
+        h3_base = self.w3(x)
+
+        h1 = self.mole_w1(x, h1_base)
+        h3 = self.mole_w3(x, h3_base)
+
+        h = F.silu(h1) * h3
+
+        h2_base = self.w2(h)
+        out = self.mole_w2(h, h2_base)
+
+        return out
 
 
 class TransformerBlockWithMoLE(nn.Module):

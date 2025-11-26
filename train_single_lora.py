@@ -37,6 +37,8 @@ def run(args):
     
     category = args.category
     base_path = args.base_path
+    max_batch_size=args.max_batch_size
+    max_seq_len=args.max_seq_len
     
     ckpt_path = os.path.join(base_path,"consolidated.00.pth")
     json_path = os.path.join(base_path,"params.json")
@@ -44,7 +46,7 @@ def run(args):
     ## 여기서 전처리코드 한번 거치고, 거기서 args.category 받아서 해당하는 데이터만 가져오면 좋을듯
 
     train_set = [torch.randint(0,100, (32,)) for _ in range(8)]
-    train_loader = torch.utils.data.DataLoader(train_set,batch_size=2,num_workers=4,shuffle=False)
+    train_loader = torch.utils.data.DataLoader(train_set,batch_size=max_batch_size,num_workers=4,shuffle=False)
     
     with open(json_path, "r") as f:
         cfg = json.load(f)
@@ -54,13 +56,13 @@ def run(args):
         n_layers=cfg["n_layers"],
         n_heads=cfg["n_heads"],
         n_kv_heads=cfg["n_kv_heads"],
-        vocab_size=cfg["vocab_size"], ##얘 왜 -1로 되어있는지 모르겟는데 ?
+        vocab_size=cfg["vocab_size"], 
         ffn_dim_multiplier=cfg["ffn_dim_multiplier"],
         multiple_of=cfg["multiple_of"],
         norm_eps=cfg["norm_eps"],
         rope_theta=cfg["rope_theta"],
-        max_batch_size=2,
-        max_seq_len=32,
+        max_batch_size=max_batch_size,
+        max_seq_len=max_seq_len,
         r=16,
         lora_alpha=32,
     )
@@ -70,6 +72,7 @@ def run(args):
     state = torch.load(ckpt_path, map_location="cpu")
     missing_keys, unexpected_keys = model.load_state_dict(state, strict=False)
     
+
     for name, param in model.named_parameters():
         if "lora_" in name:
             param.requires_grad = True
@@ -81,7 +84,7 @@ def run(args):
         loaded = (name not in missing_keys)
         print(f"{name:50s} loaded={str(loaded):5s}  requires_grad={param.requires_grad}")
     print("\n==============================================================\n")
-
+    
     lora_params = [p for n, p in model.named_parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(lora_params, lr=1e-5)
     
@@ -113,7 +116,9 @@ def run(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--category",type=str,required=True)
-    parser.add_argument("--base_path",type=str,default="/root/.llama/checkpoints/Llama3.1-8B-Instruct") # 추후에 colab에서 돌려보고 기본 path 추가
+    parser.add_argument("--base_path",type=str,default="/root/.llama/checkpoints/Llama3.1-8B-Instruct")
+    parser.add_argument("--max_batch_size",type=int,default=2)
+    parser.add_argument("--max_seq_len",type=int,default=32)
     
     args = parser.parse_args()
     

@@ -13,7 +13,6 @@ from fairscale.nn.model_parallel.layers import (
 from torch import nn
 from .utils import *
 
-
 class LoraModule(nn.Module):
     def __init__(self, in_dim: int, out_dim: int, r: int = 16, lora_alpha: int = 32):
         super().__init__()
@@ -25,7 +24,6 @@ class LoraModule(nn.Module):
 
     def forward(self, x):
         return self.lora_B(self.lora_A(x)) * self.scaling
-
 
 class AttentionWithSingleLoRA(nn.Module):
     def __init__(self, args: ModelArgs):
@@ -72,12 +70,14 @@ class AttentionWithSingleLoRA(nn.Module):
             r=args.r,
             lora_alpha=args.lora_alpha,
         )
+        
         self.lora_wk = LoraModule(
             in_dim=args.dim,
             out_dim=self.n_kv_heads * self.head_dim,
             r=args.r,
             lora_alpha=args.lora_alpha,
         )
+        
         self.lora_wv = LoraModule(
             in_dim=args.dim,
             out_dim=self.n_kv_heads * self.head_dim,
