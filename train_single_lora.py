@@ -55,23 +55,18 @@ def run(args):
     
     state = torch.load(ckpt_path, map_location="cpu")
     missing_keys, unexpected_keys = model.load_state_dict(state, strict=False)
+    
+    for name, param in model.named_parameters():
+        if "lora_" in name:
+            param.requires_grad = True
+        else:
+            param.requires_grad = False
 
     print("\n==================== Pretrain Load Check ====================\n")
     for name, param in model.named_parameters():
         loaded = (name not in missing_keys)
         print(f"{name:50s} loaded={str(loaded):5s}  requires_grad={param.requires_grad}")
     print("\n==============================================================\n")
-
-    for name, param in model.named_parameters():
-        if "lora_" in name:
-            param.requires_grad = True
-        else:
-            param.requires_grad = False
-            
-    print("=== requires_grad 확인하기 ===")
-    for name, param in model.named_parameters():
-        print(f"{name}  requires_grad={param.requires_grad}")
-
 
     lora_params = [p for n, p in model.named_parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(lora_params, lr=1e-5)

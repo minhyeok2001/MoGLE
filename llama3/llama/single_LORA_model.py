@@ -15,24 +15,16 @@ from .utils import *
 
 
 class LoraModule(nn.Module):
-    def __init__(self, base_layer: nn.Module, r : int = 16,lora_alpha : int =32):
+    def __init__(self, in_dim: int, out_dim: int, r: int = 16, lora_alpha: int = 32):
         super().__init__()
-        self.base = base_layer
         self.r = r
         self.scaling = lora_alpha / r
-        in_dim = base_layer.in_features
-        out_dim = base_layer.out_features
 
-        for p in self.base.parameters():
-            p.requires_grad_(False)
-            
         self.lora_A = nn.Linear(in_dim, r, bias=False)
         self.lora_B = nn.Linear(r, out_dim, bias=False)
 
     def forward(self, x):
-        base_out = self.base(x)
-        lora_out = self.lora_B(self.lora_A(x)) * self.scaling
-        return base_out + lora_out
+        return self.lora_B(self.lora_A(x)) * self.scaling
 
 
 class AttentionWithSingleLoRA(nn.Module):
@@ -45,21 +37,21 @@ class AttentionWithSingleLoRA(nn.Module):
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
 
-        wq_base = ColumnParallelLinear(
+        self.wq = ColumnParallelLinear(
             args.dim,
             args.n_heads * self.head_dim,
             bias=False,
             gather_output=False,
             init_method=lambda x: x,
         )
-        wk_base = ColumnParallelLinear(
+        self.wk = ColumnParallelLinear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
             gather_output=False,
             init_method=lambda x: x,
         )
-        wv_base = ColumnParallelLinear(
+        self.wv  = ColumnParallelLinear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
@@ -74,9 +66,24 @@ class AttentionWithSingleLoRA(nn.Module):
             init_method=lambda x: x,
         )
 
-        self.wq = LoraModule(wq_base, r=args.r, lora_alpha=args.lora_alpha)
-        self.wk = LoraModule(wk_base, r=args.r, lora_alpha=args.lora_alpha)
-        self.wv = LoraModule(wv_base, r=args.r, lora_alpha=args.lora_alpha)
+        self.lora_wq = LoraModule(
+            in_dim=args.dim,
+            out_dim=args.n_heads * self.head_dim,
+            r=args.r,
+            lora_alpha=args.lora_alpha,
+        )
+        self.lora_wk = LoraModule(
+            in_dim=args.dim,
+            out_dim=self.n_kv_heads * self.head_dim,
+            r=args.r,
+            lora_alpha=args.lora_alpha,
+        )
+        self.lora_wv = LoraModule(
+            in_dim=args.dim,
+            out_dim=self.n_kv_heads * self.head_dim,
+            r=args.r,
+            lora_alpha=args.lora_alpha,
+        )
 
         self.cache_k = torch.zeros(
             (
@@ -104,7 +111,15 @@ class AttentionWithSingleLoRA(nn.Module):
     ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        
+        q_delta = self.lora_wq(x)
+        k_delta = self.lora_wk(x)
+        v_delta = self.lora_wv(x)
 
+        xq = xq + q_delta
+        xk = xk + k_delta
+        xv = xv + v_delta
+        
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
@@ -164,22 +179,43 @@ class FeedForwardWithSingleLoRA(nn.Module):
             hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
         
-        w1_base = ColumnParallelLinear(
+        self.w1 = ColumnParallelLinear(
             dim, hidden_dim, bias=False, gather_output=False, init_method=lambda x: x
         )
-        w2_base = RowParallelLinear(
+        self.w2 = RowParallelLinear(
             hidden_dim, dim, bias=False, input_is_parallel=True, init_method=lambda x: x
         )
-        w3_base = ColumnParallelLinear(
+        self.w3 = ColumnParallelLinear(
             dim, hidden_dim, bias=False, gather_output=False, init_method=lambda x: x
         )
-
-        self.w1 = LoraModule(w1_base, r=r, lora_alpha=lora_alpha)
-        self.w2 = LoraModule(w2_base, r=r, lora_alpha=lora_alpha)
-        self.w3 = LoraModule(w3_base, r=r, lora_alpha=lora_alpha)
-
+        
+        self.lora_w1 = LoraModule(
+            in_dim=dim,
+            out_dim=hidden_dim,
+            r=r,
+            lora_alpha=lora_alpha,
+        )
+        self.lora_w2 = LoraModule(
+            in_dim=hidden_dim,
+            out_dim=dim,
+            r=r,
+            lora_alpha=lora_alpha,
+        )
+        self.lora_w3 = LoraModule(
+            in_dim=dim,
+            out_dim=hidden_dim,
+            r=r,
+            lora_alpha=lora_alpha,
+        )
+        
     def forward(self, x):
-        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        h1 = self.w1(x) + self.lora_w1(x)   
+        h3 = self.w3(x) + self.lora_w3(x)   
+        
+        h = F.silu(h1) * h3
+        out = self.w2(h) + self.lora_w2(h)  
+        
+        return out
 
 
 class TransformerBlockWithSingleLoRA(nn.Module):
