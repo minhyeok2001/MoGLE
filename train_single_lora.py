@@ -65,8 +65,6 @@ def run(args):
         lora_alpha=32,
     )
     
-    
-    model_args = ModelArgs()
     model = TransformerWithSingleLoRA(model_args).to("cuda")
     
     state = torch.load(ckpt_path, map_location="cpu")
