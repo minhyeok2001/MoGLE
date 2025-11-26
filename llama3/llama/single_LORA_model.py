@@ -34,9 +34,13 @@ class AttentionWithSingleLoRA(nn.Module):
         self.n_local_kv_heads = self.n_kv_heads // model_parallel_size
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
-        self.max_batch_size = args.max_batch_size,
-        self.max_seq_len = args.max_seq_len,
+        self.max_batch_size = args.max_batch_size
+        self.max_seq_len = args.max_seq_len
 
+
+        self.cache_k = None
+        self.cache_v = None
+        
         self.wq = ColumnParallelLinear(
             args.dim,
             args.n_heads * self.head_dim,
@@ -120,12 +124,12 @@ class AttentionWithSingleLoRA(nn.Module):
                 self.cache_k = torch.zeros(
                     (self.max_batch_size, self.max_seq_len, self.n_local_kv_heads, self.head_dim),
                     dtype=xk.dtype,
-                    device=xk.device,
+                    device=xk.device
                 )
                 self.cache_v = torch.zeros(
                     (self.max_batch_size, self.max_seq_len, self.n_local_kv_heads, self.head_dim),
                     dtype=xv.dtype,
-                    device=xv.device,
+                    device=xv.device
                 )
 
             self.cache_k = self.cache_k.to(xq)
