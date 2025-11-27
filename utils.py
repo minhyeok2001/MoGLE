@@ -98,3 +98,24 @@ def inject_layerwise_lora(
         setattr(parent, child_name, new_mod)
 
     return model
+
+
+def compute_balance_loss(model, eps: float = 1e-8):
+    gate_means = []
+
+    for m in model.modules():
+        if isinstance(m, MultiExpertLoraLinear):
+            w = m.last_gate_weights
+            if w is None:
+                continue
+            gate_means.append(w.mean(dim=0)) # 배치 평균으로 한번 하고, 
+
+    if len(gate_means) == 0:
+        ## 아직 gate가 안세팅된 경우에는 그냥 0으로
+        return torch.zeros(1, device=next(model.parameters()).device)
+
+    W = torch.stack(gate_means, dim=0) 
+    q = W.mean(dim=0) # 레이어간 평균
+
+    balance_loss = -torch.log(q.clamp(min=eps)).sum()
+    return balance_loss

@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import argparse
+import wandb
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 
@@ -13,6 +14,22 @@ from dataset import SimpleTextDataset, get_dummy_texts
 
 
 def run(args):
+    
+    wandb.init(
+        project="Single_LoRA",
+        name=args.genre,
+        config={
+            "genre": args.genre,
+            "epochs": args.epochs,
+            "lr": args.lr,
+            "batch_size": args.batch_size,
+            "max_len": args.max_len,
+            "lora_r": args.lora_r,
+            "lora_alpha": args.lora_alpha,
+            "target_modules": args.target_modules,
+        }
+    )
+    
     if not torch.cuda.is_available():
         raise RuntimeError("무조건 CUDA로 하셔야함")
 
@@ -81,13 +98,17 @@ def run(args):
         lr=args.lr,
         weight_decay=0.01,
     )
+    
+    wandb.watch(model, log="all")
 
     num_epochs = args.epochs
     model.train()
 
     for epoch in range(num_epochs):
         model.train()
-        for step, batch in tqdm(enumerate(train_dataloader)):
+        total_train_loss = 0.0
+        total_train_steps = 0
+        for batch in tqdm(enumerate(train_dataloader)):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
@@ -102,13 +123,18 @@ def run(args):
             loss = out.loss
             loss.backward()
             optim.step()
+            
+            total_train_loss += loss.item() 
+            total_train_steps += 1
+            
+        avg_train_loss = total_train_loss / total_train_steps
+        print(f"[epoch {epoch}] train_loss={avg_train_loss:.4f}")
 
-            if step % 20 == 0:
-                print(f"[epoch {epoch} step {step}] loss={loss.item():.4f}")
 
         model.eval()
-        val_losses = []
         with torch.no_grad():
+            total_val_loss = 0.0
+            total_val_steps = 0
             for batch in tqdm(val_dataloader):
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
@@ -120,10 +146,22 @@ def run(args):
                     labels=labels,
                     use_cache=False,
                 )
-                val_losses.append(out.loss.item())
+                loss = out.loss
+                
+                total_val_loss += loss.item() 
+                total_val_steps += 1
 
-        print(f"[epoch {epoch}] val_loss={sum(val_losses)/len(val_losses):.4f}")
-
+        avg_val_loss = total_val_loss / total_val_steps
+        print(f"[epoch {epoch}] val_loss={avg_val_loss:.4f}")
+        
+        wandb.log(
+            {
+                "train/loss": avg_train_loss,
+                "val/loss": avg_val_loss,
+                "epoch": epoch,
+            }
+        )
+        
     os.makedirs(args.lora_base_path, exist_ok=True)
     save_path = os.path.join(args.lora_base_path, f"expert_{args.genre}.ckpt")
 
@@ -137,6 +175,8 @@ def run(args):
 
     torch.save(lora_sd, save_path)
     print(f"LoRA only : {save_path}")
+    
+    wandb.finish()
     
 if __name__ == "__main__":
 

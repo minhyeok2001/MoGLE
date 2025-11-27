@@ -108,8 +108,8 @@ class MultiExpertLoraLinear(nn.Module):
         gate_logits = self.gate(gate_in) / self.tau
         weights = torch.softmax(gate_logits, dim=-1)
 
-        ## 이거 디버그용으로 따로 빼둠
-        self.last_gate_weights = weights.detach().cpu()
+        ## 이거 디버그용 & loss용으로 따로 빼둠
+        self.last_gate_weights = weights
 
         w_expanded = weights.unsqueeze(1).expand(B, T, self.num_experts).reshape(-1, self.num_experts)
 

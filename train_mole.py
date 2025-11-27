@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import argparse
+import wandb
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 
@@ -13,10 +14,25 @@ from dataset import SimpleTextDataset, get_dummy_texts
 
 
 def run(args):
+
+    wandb.init(
+        project="MoLE", 
+        config={
+            "genre": args.genre,
+            "lora_r": args.lora_r,
+            "lora_alpha": args.lora_alpha,
+            "target_modules": args.target_modules,
+            "epochs": args.epochs,
+            "lr": args.lr,
+            "batch_size": args.batch_size,
+            "max_len": args.max_len,
+            "lora_base_path": args.lora_base_path,
+            "balance_weight": args.balance_weight,
+        },
+    )
     if not torch.cuda.is_available():
         raise RuntimeError("무조건 CUDA로 하셔야함")
     
-    ############### 모델이랑 토크나이져 설정 ###############
     device = "cuda" 
     MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
     
@@ -40,9 +56,6 @@ def run(args):
         quantization_config=bnb_config,
         device_map="auto",
     )
-
-
-    ############### args에서 받아온 LORA cpkt ###############
     num_experts = len(args.genre)
 
     paths = []
@@ -51,7 +64,6 @@ def run(args):
         paths.append(p)
         
         
-    ############### 훅걸고 lora 주입 ###############
     print("=== Lora 주입중... ===")
     base_model = inject_layerwise_lora(
         base_model,
@@ -63,9 +75,6 @@ def run(args):
     )
 
     base_model.register_forward_pre_hook(capture_attention_mask, with_kwargs=True)
-
-
-    ############### 모델 ###############
     
     model = base_model.to(device)
 
@@ -83,9 +92,6 @@ def run(args):
     total = sum(p.numel() for p in model.parameters())
     trainable_after = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total params: {total:,} | Trainable - Gate, Tau: {trainable_after:,}")
-
-
-    ############### 데이터 ###############
     
     ## 그냥 일단 dataset.py에다가 샘플 생성
     texts = get_dummy_texts()
@@ -102,13 +108,15 @@ def run(args):
         lr=args.lr,
         weight_decay=0.01,
     )
-
+    
     num_epochs = args.epochs
     model.train()
 
     for epoch in range(num_epochs):
         model.train()
-        for step, batch in tqdm(enumerate(train_dataloader)):
+        total_train_loss = 0.0
+        total_train_steps = 0
+        for batch in tqdm(train_dataloader):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
@@ -120,30 +128,23 @@ def run(args):
                 labels=labels,
                 use_cache=False,
             )
-            loss = out.loss
+            llm_loss = out.loss
+            balance_loss = compute_balance_loss(model)
+            
+            loss = llm_loss + args.balance_weight * balance_loss
             loss.backward()
             optim.step()
+            
+            total_train_loss += loss.item() 
+            total_train_steps += 1
+            
+        avg_train_loss = total_train_loss / total_train_steps
+        print(f"[epoch {epoch}] train_loss={avg_train_loss:.4f}")
 
-            if step % 10 == 0:
-                print(f"[epoch {epoch} step {step}] loss={loss.item():.4f}")
-                print("=" * 80)
-
-                for name, module in model.named_modules():
-                    if isinstance(module, MultiExpertLoraLinear):
-                        w = module.last_gate_weights
-                        if w is None:
-                            continue
-                        w_mean = w.mean(dim=0)
-                        w_mean_list = [round(x.item(), 4) for x in w_mean]
-                        print(f"[module] {name}")
-                        print(f"  tau: {module.tau.item():.4f}")
-                        print(f"  gate weights (batch_mean): {w_mean_list}")
-                        print("-" * 80)
-                        
         model.eval()
-        val_losses = []
-
         with torch.no_grad():
+            total_val_loss = 0.0
+            total_val_steps = 0
             for batch in tqdm(val_dataloader):
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
@@ -155,7 +156,24 @@ def run(args):
                     labels=labels,
                     use_cache=False,
                 )
-                val_losses.append(out.loss.item())
+                llm_loss = out.loss
+                balance_loss = compute_balance_loss(model)      
+                loss = llm_loss + args.balance_weight * balance_loss
+
+                total_val_loss += loss.item() 
+                total_val_steps += 1
+
+        avg_val_loss = total_val_loss / total_val_steps
+        print(f"[epoch {epoch}] val_loss={avg_val_loss:.4f}")
+        
+        wandb.log(
+            {
+                "train/epoch_loss": avg_train_loss,
+                "val/epoch_loss": avg_val_loss,
+                "epoch": epoch,
+            }
+        )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -169,6 +187,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--max_len", type=int, default=512)
     parser.add_argument("--lora_base_path",type=str,default="/checkpoints")
+    parser.add_argument("--balance_weight",type=float,default=0.5)
 
     args = parser.parse_args()
     args.target_modules = args.target_modules.split(",")
