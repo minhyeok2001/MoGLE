@@ -37,7 +37,6 @@ class AttentionWithSingleLoRA(nn.Module):
         self.max_batch_size = args.max_batch_size
         self.max_seq_len = args.max_seq_len
 
-
         self.cache_k = None
         self.cache_v = None
         
@@ -90,7 +89,7 @@ class AttentionWithSingleLoRA(nn.Module):
             r=args.r,
             lora_alpha=args.lora_alpha,
         )
-        
+
     def forward(
         self,
         x: torch.Tensor,

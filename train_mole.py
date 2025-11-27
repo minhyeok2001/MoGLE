@@ -15,10 +15,10 @@ from .dataset import SimpleTextDataset, get_dummy_texts
 def run(args):
     if not torch.cuda.is_available():
         raise RuntimeError("무조건 CUDA로 하셔야함")
-
-    device = "cuda"
+    
+    ############### 모델이랑 토크나이져 설정 ###############
+    device = "cuda" 
     MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -36,41 +36,61 @@ def run(args):
         device_map="auto",
     )
 
-    base_model = inject_single_lora(
+
+    ############### args에서 받아온 LORA cpkt ###############
+    num_experts = len(args.genre)
+
+    paths = []
+    for genre in args.genre:
+        p = os.path.join(args.lora_base_path, f"expert_{genre}.ckpt")
+        paths.append(p)
+        
+        
+    ############### 훅걸고 lora 주입 ###############
+
+    base_model = inject_layerwise_lora(
         base_model,
         target_modules=args.target_modules,
+        num_experts=num_experts,
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
+        expert_ckpt_paths=paths,
     )
 
+    base_model.register_forward_pre_hook(capture_attention_mask, with_kwargs=True)
+
+
+    ############### 모델 ###############
+    
     model = base_model.to(device)
 
     for p in model.parameters():
         p.requires_grad = False
 
     for m in model.modules():
-        if isinstance(m, SingleLoraLinear):
-            m.lora_A.weight.requires_grad = True
-            m.lora_B.weight.requires_grad = True
-
+        if isinstance(m, MultiExpertLoraLinear):
+            m.gate.weight.requires_grad = True
+            if m.gate.bias is not None:
+                m.gate.bias.requires_grad = True
+            if hasattr(m, "tau"):
+                m.tau.requires_grad = True
+                
     total = sum(p.numel() for p in model.parameters())
-    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Total params: {total:,} | Trainable LoRA: {trainable:,}")
+    trainable_after = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total params: {total:,} | Trainable - Gate, Tau: {trainable_after:,}")
 
+
+    ############### 데이터 ###############
+    
+    ## 그냥 일단 dataset.py에다가 샘플 생성
     texts = get_dummy_texts()
-    train_texts, val_texts = train_test_split(
-        texts, test_size=0.1, shuffle=True, random_state=42
-    )
+    train_texts, val_texts = train_test_split(texts, test_size=0.1, shuffle=True, random_state=42)
 
     train_dataset = SimpleTextDataset(train_texts, tokenizer, max_len=args.max_len)
-    val_dataset = SimpleTextDataset(val_texts, tokenizer, max_len=args.max_len)
+    val_dataset   = SimpleTextDataset(val_texts, tokenizer, max_len=args.max_len)
 
-    train_dataloader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    val_dataloader = DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False
-    )
+    train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+    val_dataloader   = DataLoader(val_dataset, batch_size=1, shuffle=False)
 
     optim = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
@@ -99,11 +119,25 @@ def run(args):
             loss.backward()
             optim.step()
 
-            if step % 20 == 0:
+            if step % 10 == 0:
                 print(f"[epoch {epoch} step {step}] loss={loss.item():.4f}")
+                print("=" * 80)
 
+                for name, module in model.named_modules():
+                    if isinstance(module, MultiExpertLoraLinear):
+                        w = module.last_gate_weights
+                        if w is None:
+                            continue
+                        w_mean = w.mean(dim=0)
+                        w_mean_list = [round(x.item(), 4) for x in w_mean]
+                        print(f"[module] {name}")
+                        print(f"  tau: {module.tau.item():.4f}")
+                        print(f"  gate weights (batch_mean): {w_mean_list}")
+                        print("-" * 80)
+                        
         model.eval()
         val_losses = []
+
         with torch.no_grad():
             for batch in val_dataloader:
                 input_ids = batch["input_ids"].to(device)
@@ -118,22 +152,10 @@ def run(args):
                 )
                 val_losses.append(out.loss.item())
 
-        print(f"[epoch {epoch}] val_loss={sum(val_losses)/len(val_losses):.4f}")
-
-
-    os.makedirs(args.lora_base_path, exist_ok=True)
-    save_path = os.path.join(args.lora_base_path, f"expert_{args.genre}.ckpt")
-    torch.save(model.state_dict(), save_path)
-    print(f"Saved LoRA expert to: {save_path}")
-
-
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
-    
-    ## 얘는 실행할때 --genre로 여러개 주고 그대로 ckpt 저장하는식으로
 
-    parser.add_argument("--genre", type=str, required=True)
+    parser.add_argument("--genre",type=str,required=True)
     parser.add_argument("--lora_r", type=int, default=8)
     parser.add_argument("--lora_alpha", type=int, default=16)
     parser.add_argument("--target_modules",type=str,default="q_proj,k_proj,v_proj,o_proj,up_proj,down_proj")
@@ -141,9 +163,10 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--max_len", type=int, default=512)
-    parser.add_argument("--lora_base_path", type=str, default="/checkpoints")
+    parser.add_argument("--lora_base_path",type=str,required=True)
 
     args = parser.parse_args()
     args.target_modules = args.target_modules.split(",")
+    args.genre = args.genre.split(",")
 
     run(args)
