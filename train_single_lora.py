@@ -120,13 +120,20 @@ def run(args):
 
         print(f"[epoch {epoch}] val_loss={sum(val_losses)/len(val_losses):.4f}")
 
-
     os.makedirs(args.lora_base_path, exist_ok=True)
     save_path = os.path.join(args.lora_base_path, f"expert_{args.genre}.ckpt")
-    torch.save(model.state_dict(), save_path)
-    print(f"Saved LoRA expert to: {save_path}")
 
+    ## LORA만 빼내기
+    full_sd = model.state_dict()
+    lora_sd = {
+        k: v.cpu()
+        for k, v in full_sd.items()
+        if ("lora_A" in k) or ("lora_B" in k)
+    }
 
+    torch.save(lora_sd, save_path)
+    print(f"LoRA only : {save_path}")
+    
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
