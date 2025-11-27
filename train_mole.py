@@ -163,7 +163,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--max_len", type=int, default=512)
-    parser.add_argument("--lora_base_path",type=str,required=True)
+    parser.add_argument("--lora_base_path",type=str,default="/checkpoints")
 
     args = parser.parse_args()
     args.target_modules = args.target_modules.split(",")
