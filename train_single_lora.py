@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-
+from tqdm import tqdm
 from utils import *
 from dataset import SimpleTextDataset, get_dummy_texts
 
@@ -19,10 +19,12 @@ def run(args):
     device = "cuda"
     MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
+    print("=== 토크나이저 로딩... ===")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    print("=== BnB 로딩... ===")
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16,
@@ -30,12 +32,14 @@ def run(args):
         bnb_4bit_quant_type="nf4",
     )
 
+    print("=== 4비트 모델 로딩... ===")
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         quantization_config=bnb_config,
         device_map="auto",
     )
 
+    print("=== Lora 주입중... ===")
     base_model = inject_single_lora(
         base_model,
         target_modules=args.target_modules,
@@ -83,7 +87,7 @@ def run(args):
 
     for epoch in range(num_epochs):
         model.train()
-        for step, batch in enumerate(train_dataloader):
+        for step, batch in tqdm(enumerate(train_dataloader)):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
@@ -105,7 +109,7 @@ def run(args):
         model.eval()
         val_losses = []
         with torch.no_grad():
-            for batch in val_dataloader:
+            for batch in tqdm(val_dataloader):
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
                 labels = batch["labels"].to(device)
