@@ -8,8 +8,8 @@ from sklearn.model_selection import train_test_split
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from .utils import *
-from .dataset import SimpleTextDataset, get_dummy_texts
+from utils import *
+from dataset import SimpleTextDataset, get_dummy_texts
 
 
 def run(args):

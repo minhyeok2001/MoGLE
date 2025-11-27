@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 
-from .module import MultiExpertLoraLinear, SingleLoraLinear
+from module import MultiExpertLoraLinear, SingleLoraLinear
 import mask_state
 
 def capture_attention_mask(module, args, kwargs):
