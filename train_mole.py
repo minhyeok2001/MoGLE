@@ -166,13 +166,32 @@ def run(args):
         avg_val_loss = total_val_loss / total_val_steps
         print(f"[epoch {epoch}] val_loss={avg_val_loss:.4f}")
         
-        wandb.log(
-            {
-                "train/epoch_loss": avg_train_loss,
-                "val/epoch_loss": avg_val_loss,
-                "epoch": epoch,
-            }
-        )
+        gate_info = {}
+        for name, module in model.named_modules():
+            if isinstance(module, MultiExpertLoraLinear):
+                w = module.last_gate_weights
+                if w is None:
+                    continue
+
+                w_mean = w.mean(dim=0).detach().cpu()
+                w_mean_list = [round(x.item(), 4) for x in w_mean]
+                print(f"[module] {name}")
+                print(f"   tau: {module.tau.item():.4f}")
+                print(f"   gate_mean: {w_mean_list}")
+                print("-"*60)
+
+                for i, v in enumerate(w_mean):
+                    gate_info[f"gate/{name}/expert_{i}"] = v.item()
+                gate_info[f"gate/{name}/tau"] = module.tau.item()
+
+        log_dict = {
+            "train/epoch_loss": avg_train_loss,
+            "val/epoch_loss": avg_val_loss,
+            "epoch": epoch,
+        }
+        log_dict.update(gate_info)
+
+        wandb.log(log_dict)
 
 
 if __name__ == "__main__":
