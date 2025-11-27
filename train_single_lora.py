@@ -108,7 +108,7 @@ def run(args):
         model.train()
         total_train_loss = 0.0
         total_train_steps = 0
-        for batch in tqdm(enumerate(train_dataloader)):
+        for batch in tqdm(train_dataloader):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
