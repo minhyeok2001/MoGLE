@@ -1,16 +1,51 @@
+import pandas as pd
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
+from sklearn.model_selection import train_test_split
 
-class SimpleTextDataset(Dataset):
-    def __init__(self, texts, tokenizer, max_len=512):
+class GenreStoryDataset(Dataset):
+    def __init__(
+        self,
+        tokenizer,
+        csv_path="dataset.csv",
+        max_len=2048,
+        genres=None,
+        train_flag=True,
+        val_ratio=0.1,
+        seed=42,
+    ):
+        df = pd.read_csv(csv_path)
+        if genres is not None:
+            if isinstance(genres, str):
+                genres = [genres]
+            df = df[df["genre"].isin(genres)].reset_index(drop=True)
+        ## 여기까지 체크완료
+
+        train_df, val_df = train_test_split(
+            df,
+            test_size=val_ratio,
+            shuffle=True,
+            random_state=seed,
+        )
+
+        ## idx reset하기
+        if train_flag:
+            df = train_df.reset_index(drop=True)
+        else:
+            df = val_df.reset_index(drop=True)
+
+        self.genres = df["genre"].tolist()
+        self.sources = df["source"].tolist()
+        stories = df["story"].tolist()
+
         enc = tokenizer(
-            texts,
+            stories,
             padding="max_length",
             truncation=True,
             max_length=max_len,
             return_tensors="pt",
         )
+        
         self.input_ids = enc["input_ids"]
         self.attn_mask = enc["attention_mask"]
 
@@ -25,20 +60,6 @@ class SimpleTextDataset(Dataset):
             "input_ids": self.input_ids[idx],
             "attention_mask": self.attn_mask[idx],
             "labels": self.labels[idx],
+            "genre": self.genres[idx],
+            "source": self.sources[idx],
         }
-
-
-def get_dummy_texts():
-    base_texts = [
-        "The wizard opened the ancient grimoire under the moonlight.",
-        "A small dragon curled up by the fireplace, snoring softly.",
-        "Modern data centers rely on thousands of interconnected servers.",
-        "The neural network struggled to generalize from the tiny dataset.",
-        "In a distant kingdom, magic and science coexisted uneasily.",
-        "장르에 따라 문장의 리듬과 어휘 선택이 완전히 달라진다.",
-        "이 도시는 마법사가 아닌 엔지니어가 세상을 움직이는 곳이다.",
-        "서버 로그를 분석하자 예기치 못한 트래픽 패턴이 드러났다.",
-        "용 사냥꾼은 오래된 전설 속 주문을 중얼거리며 숲을 걸었다.",
-        "인공지능 모델은 점점 더 미묘한 스타일 차이를 포착하기 시작했다.",
-    ]
-    return base_texts * 10
