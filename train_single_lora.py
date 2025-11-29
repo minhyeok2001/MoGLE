@@ -78,8 +78,8 @@ def run(args):
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total params: {total:,} | Trainable LoRA: {trainable:,}")
 
-    train_dataset = GenreStoryDataset(tokenizer=tokenizer,max_len=args.max_len,train_flag=True)
-    val_dataset = GenreStoryDataset(tokenizer=tokenizer,max_len=args.max_len,train_flag=False)
+    train_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=args.genre, max_len=args.max_len,train_flag=True)
+    val_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=args.genre,max_len=args.max_len,train_flag=False)
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
