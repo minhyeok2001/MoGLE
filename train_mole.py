@@ -206,7 +206,7 @@ def run(args):
 
     save_path = os.path.join(
         save_dir,
-        f"mole_gate_{'_'.join(args.genre)}_{args.balance_weight}.ckpt"
+        f"mole_gate_{args.balance_weight}.ckpt"
     )
     torch.save(gate_sd, save_path)
     print(f"[저장 완료] Gate/Tau ckpt: {save_path}")
