@@ -1,16 +1,19 @@
 import os
+import argparse
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-
 from utils import inject_layerwise_lora, MultiExpertLoraLinear, capture_attention_mask
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--gate_weight", type=str, required=True)
+args = parser.parse_args()
 
 MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 LORA_BASE_PATH = "/checkpoints"
-GATE_CKPT_PATH = "/checkpoints/gate_ckpts/mole_gate_Adventure_Horror_Fantasy_Sci-Fi_Dystopian.ckpt"
+GATE_CKPT_PATH = f"/checkpoints/gate_ckpts/mole_{args.gate_weight}.ckpt"
 
 if not torch.cuda.is_available():
     raise RuntimeError("CUDA required")
-
 device = "cuda"
 
 expert_files = [
@@ -88,7 +91,7 @@ def generate_with_mole(prompt, max_new_tokens=128, temperature=0.7, top_p=0.9):
     return tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
 test_prompt = (
-    "You are a writing assistant specializing in Sci-Fi"
+    "You are a writing assistant specializing in Sci-Fi. "
     "User: Write a short opening paragraph in a Sci-Fi style.\n"
     "Assistant:"
 )
