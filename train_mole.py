@@ -194,6 +194,28 @@ def run(args):
         wandb.log(log_dict)
 
 
+    save_dir = os.path.join(args.lora_base_path, "gate_ckpts")
+    os.makedirs(save_dir, exist_ok=True)
+
+    gate_sd = {}
+
+    for name, module in model.named_modules():
+        if isinstance(module, MultiExpertLoraLinear):
+            if hasattr(module, "gate"):
+                gate_sd[f"{name}.gate.weight"] = module.gate.weight.cpu().clone()
+                if module.gate.bias is not None:
+                    gate_sd[f"{name}.gate.bias"] = module.gate.bias.cpu().clone()
+            if hasattr(module, "tau"):
+                gate_sd[f"{name}.tau"] = module.tau.detach().cpu().clone()
+
+    save_path = os.path.join(
+        save_dir,
+        f"mole_gate_{'_'.join(args.genre)}.ckpt"
+    )
+    torch.save(gate_sd, save_path)
+    print(f"[저장 완료] Gate/Tau ckpt: {save_path}")
+    
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
