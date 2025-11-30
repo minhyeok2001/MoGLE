@@ -43,6 +43,8 @@ model = inject_single_lora(
 lora_sd = torch.load(CKPT_PATH, map_location="cpu")
 model.load_state_dict(lora_sd, strict=False)
 
+model.to(device)
+
 model.eval()
 for p in model.parameters():
     p.requires_grad = False
