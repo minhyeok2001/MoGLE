@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from tqdm import tqdm
 from utils import *
-from dataset import SimpleTextDataset, get_dummy_texts
+from dataset import GenreStoryDataset
 
 
 def run(args):
@@ -93,15 +93,11 @@ def run(args):
     trainable_after = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total params: {total:,} | Trainable - Gate, Tau: {trainable_after:,}")
     
-    ## 그냥 일단 dataset.py에다가 샘플 생성
-    texts = get_dummy_texts()
-    train_texts, val_texts = train_test_split(texts, test_size=0.1, shuffle=True, random_state=42)
+    train_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=None, max_len=args.max_len,train_flag=True)
+    val_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=None,max_len=args.max_len,train_flag=False)
 
-    train_dataset = SimpleTextDataset(train_texts, tokenizer, max_len=args.max_len)
-    val_dataset   = SimpleTextDataset(val_texts, tokenizer, max_len=args.max_len)
-
-    train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-    val_dataloader   = DataLoader(val_dataset, batch_size=1, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
     optim = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
