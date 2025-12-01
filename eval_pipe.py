@@ -408,16 +408,20 @@ def run(args):
         p.requires_grad = False
 
     print("\n\n======== Running BASE Llama-3.1-8B (no MoLE) ========")
+    print("\n===== Running v1 =====")
     answer_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=512)
-    answer_list_v2_base = generate_with_model(prompt_list_v2, tokenizer, base_model, device=device, max_new_tokens=512)
-    answer_list_v3_base = generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=512)
+    print("\n===== Running v2 =====")
+    #answer_list_v2_base = generate_with_model(prompt_list_v2, tokenizer, base_model, device=device, max_new_tokens=512)
+    print("\n===== Running v3 =====")
+    #answer_list_v3_base = generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=512)
 
+    print("\n===== eval v1 =====")
     scores_v1_base = eval_pipe(prompt_list_v1, answer_list_v1_base, gt_list_v1, genre_list, context_map, sota_centroids)
-    scores_v2_base = eval_pipe(prompt_list_v2, answer_list_v2_base, gt_list_v2, genre_list, context_map, sota_centroids)
-    scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, gt_list_v3, genre_list, context_map, sota_centroids)
+    #scores_v2_base = eval_pipe(prompt_list_v2, answer_list_v2_base, gt_list_v2, genre_list, context_map, sota_centroids)
+    #scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, gt_list_v3, genre_list, context_map, sota_centroids)
 
-    all_base_scores = scores_v1_base + scores_v2_base + scores_v3_base
-    summarize_scores(all_base_scores, title="BASE MODEL SUMMARY (Llama-3.1-8B-Instruct)")
+    #all_base_scores = scores_v1_base + scores_v2_base + scores_v3_base
+    #summarize_scores(all_base_scores, title="BASE MODEL SUMMARY (Llama-3.1-8B-Instruct)")
 
     print("\n\n======== Injecting MoLE and evaluating ========")
 
