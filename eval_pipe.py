@@ -7,6 +7,7 @@ import argparse
 import torch
 import pandas as pd
 import nest_asyncio
+from collections import defaultdict
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import cos_sim
@@ -73,7 +74,7 @@ def preprocess_csv(csv_path):
     return df
 
 @torch.no_grad()
-def generate_with_mole(prompt_list, tokenizer, model, device="cuda", max_new_tokens=512):
+def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_tokens=512):
     outputs = []
     for p in prompt_list:
         inputs = tokenizer(
@@ -97,24 +98,71 @@ def generate_with_mole(prompt_list, tokenizer, model, device="cuda", max_new_tok
 
 
 # =================== SOTA COMPARISON ====================
-def sota_comparison(user_input, response):
-    sota1_out = SOTA1.invoke(user_input).content
-    sota2_out = SOTA2.invoke(user_input).content
-    sota3_out = SOTA3.invoke(user_input).content
+def build_sota_centroids(prompt_lists, genre_list):
+    accum = defaultdict(lambda: {"sota1": [], "sota2": [], "sota3": []})
 
-    texts = [response, sota1_out, sota2_out, sota3_out]
-    embeddings = EMBED_MODEL.encode(texts, convert_to_tensor=True)
+    num_examples = len(genre_list)
 
-    resp_emb = embeddings[0]
-    sota_embs = embeddings[1:] 
-    
-    sims = cos_sim(resp_emb, sota_embs).tolist()[0]
+    for i in range(num_examples):
+        g = str(genre_list[i])
+
+        for prompt_list in prompt_lists:
+            prompt = str(prompt_list[i])
+            
+            sota1_out = SOTA1.invoke(prompt).content
+            sota2_out = SOTA2.invoke(prompt).content
+            sota3_out = SOTA3.invoke(prompt).content
+
+            embs = EMBED_MODEL.encode(
+                [sota1_out, sota2_out, sota3_out],
+                convert_to_tensor=True,
+            )
+            e1, e2, e3 = embs[0], embs[1], embs[2]
+
+            accum[g]["sota1"].append(e1)
+            accum[g]["sota2"].append(e2)
+            accum[g]["sota3"].append(e3)
+
+    centroids = {}
+    for g, d in accum.items():
+        sota1_cent = torch.stack(d["sota1"], dim=0).mean(dim=0)
+        sota2_cent = torch.stack(d["sota2"], dim=0).mean(dim=0)
+        sota3_cent = torch.stack(d["sota3"], dim=0).mean(dim=0)
+        avg_cent   = torch.stack([sota1_cent, sota2_cent, sota3_cent], dim=0).mean(dim=0)
+
+        centroids[g] = {
+            "sota1": sota1_cent,
+            "sota2": sota2_cent,
+            "sota3": sota3_cent,
+            "avg":   avg_cent,
+        }
+
+    return centroids
+
+def sota_comparison(response, genre, sota_centroids):
+    g = str(genre)
+    if g not in sota_centroids:
+        return {
+            "sota1_cos_sim": 0.0,
+            "sota2_cos_sim": 0.0,
+            "sota3_cos_sim": 0.0,
+            "avg_cos_sim":   0.0,
+        }
+
+    cent = sota_centroids[g]
+
+    resp_emb = EMBED_MODEL.encode(response, convert_to_tensor=True)
+
+    s1 = cos_sim(resp_emb, cent["sota1"]).item()
+    s2 = cos_sim(resp_emb, cent["sota2"]).item()
+    s3 = cos_sim(resp_emb, cent["sota3"]).item()
+    avg = cos_sim(resp_emb, cent["avg"]).item()
 
     return {
-        "sota1_cos_sim": sims[0],
-        "sota2_cos_sim": sims[1],
-        "sota3_cos_sim": sims[2],
-        "avg_cos_sim": sum(sims) / len(sims),
+        "sota1_cos_sim": s1,
+        "sota2_cos_sim": s2,
+        "sota3_cos_sim": s3,
+        "avg_cos_sim":   avg,
     }
     
     
@@ -174,7 +222,7 @@ def genre_classifier(user_input, response, genre):
     
     
 # =================== EVAL PIPE ====================
-def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map):
+def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map, sota_centroids):
     """
     prompt_list: 처음에 주는 프롬프트 
     answer_list: MoLE의 output값 
@@ -195,7 +243,7 @@ def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map):
             context = context_map.get("default", "")
 
         print("============ SOTA COMPARISON 실행중... ============")
-        sota_scores = sota_comparison(user_input, response)
+        sota_scores = sota_comparison(response, genre, sota_centroids)
         print("[sota_comparison_scores]", sota_scores)
 
         print("============ LLM JUDGE 실행중... ============")
@@ -207,8 +255,8 @@ def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map):
         print("[style_distance_scores]", style_cos_scores)
 
         print("============ GENRE CLASSIFIER 실행중... ============")
-        genre_classifier_scores = genre_classifier(user_input, response, genre)
-        print("[genre_classifier_scores]", genre_classifier_scores)
+        #genre_classifier_scores = genre_classifier(user_input, response, genre)
+        #print("[genre_classifier_scores]", genre_classifier_scores)
         
         all_scores.append({
             "index": i,
@@ -218,12 +266,12 @@ def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map):
             "sota_comparison_score":sota_scores,
             "llm_judge_score":llm_judge_scores,
             "style_distance_score":style_cos_scores,
-            "genre_classifier_score":genre_classifier_scores
+            #"genre_classifier_score":genre_classifier_scores
         })
 
     return all_scores
 
-def summarize_scores(all_scores):
+def summarize_scores(all_scores, title=None):
     n = len(all_scores)
 
     sota1_list = [s["sota_comparison_score"]["sota1_cos_sim"] for s in all_scores]
@@ -260,7 +308,6 @@ def summarize_scores(all_scores):
     print(f"  style_distance avg (cosine): {mean(style_list):.4f}")
     print("=====================================\n")
     
-    
 
 def run(args):
     MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
@@ -270,21 +317,61 @@ def run(args):
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA required")
     device = "cuda"
+    context_map = {
+        "Adventure": """
+        - Fast or steady forward-moving pacing
+        - Clear sense of journey, exploration, or mission
+        - Action-oriented scenes or problem-solving moments
+        - Atmosphere emphasizing challenge, thrill, or discovery
+        """.strip(),
 
-    expert_files = [
-        f for f in os.listdir(LORA_BASE_PATH)
-        if f.startswith("expert_") and f.endswith(".ckpt")
-    ]
+        "Horror": """
+        - Dark, tense, or unsettling atmosphere
+        - Gradual build-up of fear, dread, or anxiety
+        - Elements of threat, mystery, or the unknown
+        - Emotional tone that evokes discomfort or suspense
+        """.strip(),
 
-    def extract_genre(fname):
-        return fname[len("expert_") : -len(".ckpt")]
+        "Fantasy": """
+        - Fantasy setting with magic or supernatural elements
+        - Consistent worldbuilding and internal logic
+        - Emotional but not melodramatic tone
+        - Characters, events, or visuals reflecting a mythical or otherworldly feel
+        """.strip(),
 
-    GENRES = sorted(extract_genre(f) for f in expert_files)
-    print("genres:", GENRES)
+        "Sci-Fi": """
+        - Technology, science, or futuristic concepts integrated into the narrative
+        - Logical or speculative worldbuilding
+        - Analytical or reflective tone rather than purely emotional
+        - Themes involving innovation, artificial intelligence, space, or advanced society
+        """.strip(),
 
-    expert_ckpt_paths = [
-        os.path.join(LORA_BASE_PATH, f"expert_{g}.ckpt") for g in GENRES
-    ]
+        "Dystopian": """
+        - Bleak, oppressive, or controlled societal structure
+        - Themes of surveillance, inequality, or loss of freedom
+        - Dark, reflective emotional tone
+        - Protagonist perspective highlighting resistance, suffering, or systemic issues
+        """.strip(),
+
+        "default": "General narrative quality.",
+    }
+
+    df = preprocess_csv("eval.csv")
+    genre_list = df["genre"].tolist()
+
+    prompt_list_v1 = df["prompt_v1"].tolist()
+    prompt_list_v2 = df["prompt_v2"].tolist()
+    prompt_list_v3 = df["prompt_v3"].tolist()
+
+    gt_list_v1 = df["GT1_gemini"].tolist()
+    gt_list_v2 = df["GT2_gemini"].tolist()
+    gt_list_v3 = df["GT3_gemini"].tolist()
+    
+    print("\n\n======== Building SOTA centroids (by genre, using v1+v2+v3) ========")
+    sota_centroids = build_sota_centroids(
+        [prompt_list_v1, prompt_list_v2, prompt_list_v3],
+        genre_list,
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     if tokenizer.pad_token is None:
@@ -304,90 +391,71 @@ def run(args):
     )
 
     base_model.register_forward_pre_hook(capture_attention_mask, with_kwargs=True)
+    base_model.eval()
+    for p in base_model.parameters():
+        p.requires_grad = False
 
-    target_modules = ["q_proj","k_proj","v_proj","o_proj","up_proj","down_proj"]
-    lora_r = 8
-    lora_alpha = 16
+    print("\n\n======== Running BASE Llama-3.1-8B (no MoLE) ========")
+    answer_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=512)
+    answer_list_v2_base = generate_with_model(prompt_list_v2, tokenizer, base_model, device=device, max_new_tokens=512)
+    answer_list_v3_base = generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=512)
 
-    model = inject_layerwise_lora(
+    scores_v1_base = eval_pipe(prompt_list_v1, answer_list_v1_base, gt_list_v1, genre_list, context_map, sota_centroids)
+    scores_v2_base = eval_pipe(prompt_list_v2, answer_list_v2_base, gt_list_v2, genre_list, context_map, sota_centroids)
+    scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, gt_list_v3, genre_list, context_map, sota_centroids)
+
+    all_base_scores = scores_v1_base + scores_v2_base + scores_v3_base
+    summarize_scores(all_base_scores, title="BASE MODEL SUMMARY (Llama-3.1-8B-Instruct)")
+
+    print("\n\n======== Injecting MoLE and evaluating ========")
+
+    expert_files = [
+        f for f in os.listdir(LORA_BASE_PATH)
+        if f.startswith("expert_") and f.endswith(".ckpt")
+    ]
+
+    def extract_genre(fname):
+        return fname[len("expert_") : -len(".ckpt")]
+
+    GENRES = sorted(extract_genre(f) for f in expert_files)
+    print("genres:", GENRES)
+
+    expert_ckpt_paths = [
+        os.path.join(LORA_BASE_PATH, f"expert_{g}.ckpt") for g in GENRES
+    ]
+
+    model_mole = inject_layerwise_lora(
         base_model,
-        target_modules=target_modules,
+        target_modules=["q_proj","k_proj","v_proj","o_proj","up_proj","down_proj"],
         num_experts=len(GENRES),
-        r=lora_r,
-        lora_alpha=lora_alpha,
+        r=8,
+        lora_alpha=16,
         expert_ckpt_paths=expert_ckpt_paths,
     )
 
     gate_sd = torch.load(GATE_CKPT_PATH, map_location="cpu")
-    model.load_state_dict(gate_sd, strict=False)
-    model.to(device)
-    
-    model.eval()
-    for p in model.parameters():
+    model_mole.load_state_dict(gate_sd, strict=False)
+    model_mole.to(device)
+
+    model_mole.eval()
+    for p in model_mole.parameters():
         p.requires_grad = False
-        
-    context_map = {
-    "Adventure": """
-    - Fast or steady forward-moving pacing
-    - Clear sense of journey, exploration, or mission
-    - Action-oriented scenes or problem-solving moments
-    - Atmosphere emphasizing challenge, thrill, or discovery
-    """.strip(),
 
-    "Horror": """
-    - Dark, tense, or unsettling atmosphere
-    - Gradual build-up of fear, dread, or anxiety
-    - Elements of threat, mystery, or the unknown
-    - Emotional tone that evokes discomfort or suspense
-    """.strip(),
+    answer_list_v1_mole = generate_with_model(prompt_list_v1, tokenizer, model_mole, device=device, max_new_tokens=512)
+    answer_list_v2_mole = generate_with_model(prompt_list_v2, tokenizer, model_mole, device=device, max_new_tokens=512)
+    answer_list_v3_mole = generate_with_model(prompt_list_v3, tokenizer, model_mole, device=device, max_new_tokens=512)
 
-    "Fantasy": """
-    - Fantasy setting with magic or supernatural elements
-    - Consistent worldbuilding and internal logic
-    - Emotional but not melodramatic tone
-    - Characters, events, or visuals reflecting a mythical or otherworldly feel
-    """.strip(),
+    scores_v1_mole = eval_pipe(prompt_list_v1, answer_list_v1_mole, gt_list_v1, genre_list, context_map, sota_centroids)
+    scores_v2_mole = eval_pipe(prompt_list_v2, answer_list_v2_mole, gt_list_v2, genre_list, context_map, sota_centroids)
+    scores_v3_mole = eval_pipe(prompt_list_v3, answer_list_v3_mole, gt_list_v3, genre_list, context_map, sota_centroids)
 
-    "Sci-Fi": """
-    - Technology, science, or futuristic concepts integrated into the narrative
-    - Logical or speculative worldbuilding
-    - Analytical or reflective tone rather than purely emotional
-    - Themes involving innovation, artificial intelligence, space, or advanced society
-    """.strip(),
+    all_mole_scores = scores_v1_mole + scores_v2_mole + scores_v3_mole
+    summarize_scores(all_mole_scores, title="MoLE MODEL SUMMARY (Llama-3.1-8B + MoLE)")
 
-    "Dystopian": """
-    - Bleak, oppressive, or controlled societal structure
-    - Themes of surveillance, inequality, or loss of freedom
-    - Dark, reflective emotional tone
-    - Protagonist perspective highlighting resistance, suffering, or systemic issues
-    """.strip(),
 
-    "default": "General narrative quality.",
-    }
-        
-    df = preprocess_csv("eval.csv")
-    genre_list = df["genre"].tolist()
-
-    prompt_list_v1 = df["prompt_v1"].tolist()
-    prompt_list_v2 = df["prompt_v2"].tolist()
-    prompt_list_v3 = df["prompt_v3"].tolist()
-    
-    gt_list_v1 = df["GT1_gemini"].tolist()
-    gt_list_v2 = df["GT2_gemini"].tolist()
-    gt_list_v3 = df["GT3_gemini"].tolist()
-
-    answer_list_v1 = generate_with_mole(prompt_list_v1, tokenizer, model, device=device, max_new_tokens=512)
-    answer_list_v2 = generate_with_mole(prompt_list_v2, tokenizer, model, device=device, max_new_tokens=512)
-    answer_list_v3 = generate_with_mole(prompt_list_v3, tokenizer, model, device=device, max_new_tokens=512)
-
-    scores_v1 = eval_pipe(prompt_list_v1, answer_list_v1, gt_list_v1, genre_list, context_map)
-    scores_v2 = eval_pipe(prompt_list_v2, answer_list_v2, gt_list_v2, genre_list, context_map)
-    scores_v3 = eval_pipe(prompt_list_v3, answer_list_v3, gt_list_v3, genre_list, context_map)
-        
-    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gate_weight", type=str, required=True)
     args = parser.parse_args()
-    
+
     run(args)
