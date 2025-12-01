@@ -367,12 +367,24 @@ def run(args):
     gt_list_v2 = df["GT2_gemini"].tolist()
     gt_list_v3 = df["GT3_gemini"].tolist()
     
+    print("\n===== Prompt v1 (sample) =====")
+    for i in range(min(3, len(prompt_list_v1))):
+        print(f"[{i}] {prompt_list_v1[i]}\n")
+
+    print("\n===== Prompt v2 (sample) =====")
+    for i in range(min(3, len(prompt_list_v2))):
+        print(f"[{i}] {prompt_list_v2[i]}\n")
+
+    print("\n===== Prompt v3 (sample) =====")
+    for i in range(min(3, len(prompt_list_v3))):
+        print(f"[{i}] {prompt_list_v3[i]}\n")
+    
     print("\n\n======== Building SOTA centroids (by genre, using v1+v2+v3) ========")
     sota_centroids = build_sota_centroids(
         [prompt_list_v1, prompt_list_v2, prompt_list_v3],
         genre_list,
     )
-
+    
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
