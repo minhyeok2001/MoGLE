@@ -363,9 +363,9 @@ def run(args):
     prompt_list_v2 = df["prompt_v2"].tolist()
     prompt_list_v3 = df["prompt_v3"].tolist()
 
-    gt_list_v1 = df["GT1_gemini"].tolist()
-    gt_list_v2 = df["GT2_gemini"].tolist()
-    gt_list_v3 = df["GT3_gemini"].tolist()
+    gt_list_v1 = df["GT1"].tolist()
+    gt_list_v2 = df["GT2"].tolist()
+    gt_list_v3 = df["GT3"].tolist()
     
     print("\n===== Prompt v1 (sample) =====")
     for i in range(min(3, len(prompt_list_v1))):

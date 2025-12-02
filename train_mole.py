@@ -93,21 +93,37 @@ def run(args):
     trainable_after = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total params: {total:,} | Trainable - Gate, Tau: {trainable_after:,}")
     
-    train_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=None, max_len=args.max_len,train_flag=True)
-    val_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=None,max_len=args.max_len,train_flag=False)
+    train_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=None, max_len=args.max_len,train_flag=True,training_target="mole")
+    val_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=None,max_len=args.max_len,train_flag=False,training_target="mole")
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
+    print("== datset size ==")
+    print(" train :", len(train_dataset))
+    print(" val :", len(val_dataset))
+    
     optim = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=args.lr,
         weight_decay=0.01,
     )
     
+    wandb.watch(model, log="all")
+    
     num_epochs = args.epochs
     model.train()
 
+    best_val_loss = float("inf")
+    no_improve = 0
+    best_gate_sd = None
+    patience = 1
+    
+    # 이거 끝에서 하지말고 에폭 중간에도 그냥 저장되도록
+    save_dir = os.path.join(args.lora_base_path, "gate_ckpts")
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir,f"mole_{args.balance_weight}.ckpt")
+    
     for epoch in range(num_epochs):
         model.train()
         total_train_loss = 0.0
@@ -188,29 +204,30 @@ def run(args):
         log_dict.update(gate_info)
 
         wandb.log(log_dict)
+        
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            no_improve = 0
 
+            best_gate_sd = {}
+            for name, module in model.named_modules():
+                if isinstance(module, MultiExpertLoraLinear):
+                    if hasattr(module, "gate"):
+                        best_gate_sd[f"{name}.gate.weight"] = module.gate.weight.detach().cpu().clone()
+                        if module.gate.bias is not None:
+                            best_gate_sd[f"{name}.gate.bias"] = module.gate.bias.detach().cpu().clone()
+                    if hasattr(module, "tau"):
+                        best_gate_sd[f"{name}.tau"] = module.tau.detach().cpu().clone()
 
-    save_dir = os.path.join(args.lora_base_path, "gate_ckpts")
-    os.makedirs(save_dir, exist_ok=True)
+            print(f"[epoch {epoch}] val loss improved. best_val_loss = {best_val_loss:.4f}")
+            torch.save(best_gate_sd, save_path)
+            print(f"[저장 완료] Gate/Tau ckpt: {save_path}")
 
-    gate_sd = {}
-
-    for name, module in model.named_modules():
-        if isinstance(module, MultiExpertLoraLinear):
-            if hasattr(module, "gate"):
-                gate_sd[f"{name}.gate.weight"] = module.gate.weight.cpu().clone()
-                if module.gate.bias is not None:
-                    gate_sd[f"{name}.gate.bias"] = module.gate.bias.cpu().clone()
-            if hasattr(module, "tau"):
-                gate_sd[f"{name}.tau"] = module.tau.detach().cpu().clone()
-
-    save_path = os.path.join(
-        save_dir,
-        f"mole_{args.balance_weight}.ckpt"
-    )
-    torch.save(gate_sd, save_path)
-    print(f"[저장 완료] Gate/Tau ckpt: {save_path}")
-    
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                print(f"[Early Stop] {patience} epochs without improvement. Stop training.")
+                break
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -14,7 +14,7 @@ from sample_dataset import SimpleTextDataset, get_dummy_texts
 from dataset import GenreStoryDataset
 
 def run(args):
-    
+
     wandb.init(
         project="Single_LoRA",
         name=args.genre,
@@ -29,7 +29,7 @@ def run(args):
             "target_modules": args.target_modules,
         }
     )
-    
+
     if not torch.cuda.is_available():
         raise RuntimeError("무조건 CUDA로 하셔야함")
 
@@ -78,11 +78,15 @@ def run(args):
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total params: {total:,} | Trainable LoRA: {trainable:,}")
 
-    train_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=args.genre, max_len=args.max_len,train_flag=True)
-    val_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=args.genre,max_len=args.max_len,train_flag=False)
+    train_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=args.genre, max_len=args.max_len,train_flag=True,training_target="lora")
+    val_dataset = GenreStoryDataset(tokenizer=tokenizer,genres=args.genre,max_len=args.max_len,train_flag=False,training_target="lora")
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    
+    print("== datset size ==")
+    print(" train :", len(train_dataset))
+    print(" val :", len(val_dataset))
 
     optim = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
