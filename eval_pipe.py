@@ -1,7 +1,7 @@
 ## 1. 모델 로드하기
 ## 2. data handling (프롬프트 합치기)
 ## 3. pipeline 
-
+import wandb
 import os
 import argparse
 import torch
@@ -32,13 +32,22 @@ SOTA2 = ChatGroq(
     api_key=GROQ_KEY,
 )
 SOTA3 = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="meta-llama/llama-4-maverick-17b-128e-instruct",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
 
-def preprocess_csv(csv_path):
+def preprocess_csv(csv_path, split_type):
     df = pd.read_csv(csv_path)
+
+    n = len(df)
+    if split_type == "A":
+        df = df.iloc[: n // 2].reset_index(drop=True)
+    elif split_type == "B":
+        df = df.iloc[n // 2 :].reset_index(drop=True)
+    else:
+        raise RuntimeError("유효한 TYPE 주세요")
+
 
     def build_prompts(row):
         u1 = str(row["사람1"])
@@ -47,13 +56,19 @@ def preprocess_csv(csv_path):
         a2 = str(row["AI2"])
         u3 = str(row["사람3"])
 
+        GT1 = str(row["GT1"])
+        GT2 = str(row["GT2"])
+        GT3 = str(row["GT3"])
+
         prompt_v1 = f"user: {u1}"
+        target_v1 = GT1
 
         prompt_v2 = "\n".join([
             f"user: {u1}",
             f"assistant: {a1}",
             f"user: {u2}",
         ])
+        target_v2 = prompt_v2 + "\nassistant: " + GT2
 
         prompt_v3 = "\n".join([
             f"user: {u1}",
@@ -62,20 +77,27 @@ def preprocess_csv(csv_path):
             f"assistant: {a2}",
             f"user: {u3}",
         ])
+        target_v3 = prompt_v3 + "\nassistant: " + GT3
 
         return pd.Series({
             "prompt_v1": prompt_v1,
             "prompt_v2": prompt_v2,
             "prompt_v3": prompt_v3,
+            "target_v1": target_v1,
+            "target_v2": target_v2,
+            "target_v3": target_v3,
         })
 
     prompts = df.apply(build_prompts, axis=1)
     df = pd.concat([df, prompts], axis=1)
     return df
 
+
 @torch.no_grad()
 def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_tokens=512):
-    outputs = []
+    full_outputs = []
+    model_only_outputs = []
+
     for p in prompt_list:
         inputs = tokenizer(
             p,
@@ -83,6 +105,8 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
             truncation=True,
             max_length=2048,
         ).to(device)
+
+        input_ids = inputs["input_ids"]
 
         out_ids = model.generate(
             **inputs,
@@ -92,9 +116,18 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
             top_p=0.9,
             pad_token_id=tokenizer.eos_token_id,
         )
-        text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-        outputs.append(text)
-    return outputs
+
+        # 전체 출력 (prompt + model)
+        full_output = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+
+        # 모델이 새로 생성한 부분만
+        generated_ids = out_ids[0][input_ids.shape[1]:]
+        model_only_output = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+        full_outputs.append(full_output)
+        model_only_outputs.append(model_only_output)
+
+    return full_outputs, model_only_outputs
 
 
 # =================== SOTA COMPARISON ====================
@@ -167,24 +200,25 @@ def sota_comparison(response, genre, sota_centroids):
     
     
 # =================== LLM JUDGE ====================
-def judge_single(llm, context, user_input, response, genre):
+def judge_single(llm, context, user_input, response_only, genre):
     prompt = f"""
-    You are a {genre} genre evaluator.
-    Based on the [Genre Rules] below, evaluate how well the [Model Output] follows the required style, tone, and narrative characteristics.
+You are an evaluator for the {genre} genre.
 
-    0.0 = does not match at all
-    1.0 = matches almost perfectly
+Your job is to evaluate how well the **new reply** from the model fits the required narrative style, tone, and characteristics of the {genre} genre, **given the full previous conversation context**.
 
-    You must output only a single number between 0.0 and 1.0. Do not include any explanation.
+Scoring rules:
+- 0.0 = completely does NOT match the genre
+- 1.0 = matches the genre almost perfectly
+- You MUST output only a single number between 0.0 and 1.0. No explanation.
 
-    [Genre Rules]
-    {context}
+[Genre Rules]
+{context}
 
-    [User Prompt]
-    {user_input}
+[Previous Conversation Context]
+{user_input}
 
-    [Model Output]
-    {response}
+[Model's New Reply]
+{response_only}
     """.strip()
 
     result = llm.invoke(prompt)
@@ -220,22 +254,22 @@ def style_distance(gt, response):
 def genre_classifier(user_input, response, genre):
     pass
     
-    
+
 # =================== EVAL PIPE ====================
-def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map, sota_centroids):
+def eval_pipe(prompt_list, answer_list, answer_only_list, gt_list, gt_only_list, genre_list, context_map, sota_centroids):
     """
     prompt_list: 처음에 주는 프롬프트 
     answer_list: MoLE의 output값 
     genre_list: df에서 순서대로 가져오는 genre list
     context_map: genre rules
     """
-    assert len(prompt_list) == len(answer_list) == len(genre_list) == len(gt_list), "길이 안 맞음!!!"
+    assert len(prompt_list) == len(answer_list) == len(genre_list) == len(gt_only_list), "길이 안 맞음!!!"
 
     all_scores = []
-    for i, (user_input, response, gt, genre) in enumerate(zip(prompt_list, answer_list, gt_list, genre_list)):
+    for i, (user_input, response_cumulative, response_only, gt_cumulative ,gt_only, genre) in enumerate(zip(prompt_list, answer_list, answer_only_list, gt_list,gt_only_list, genre_list)):
         print(f"\n=== Example {i} (genre={genre}) ===")
-        print(f"[Prompt]\n{user_input[:120]}...")
-        print(f"[Response]\n{response[:120]}...")
+        print(f"[Prompt]\n{user_input}...")
+        print(f"[Response]\n{response_only}...")
         
         if genre in context_map:
             context = context_map[genre]
@@ -243,15 +277,15 @@ def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map, sota_c
             context = context_map.get("default", "")
 
         print("============ SOTA COMPARISON 실행중... ============")
-        sota_scores = sota_comparison(response, genre, sota_centroids)
+        sota_scores = sota_comparison(response_cumulative, genre, sota_centroids)
         print("[sota_comparison_scores]", sota_scores)
 
         print("============ LLM JUDGE 실행중... ============")
-        llm_judge_scores = llm_judge(context, user_input, response, genre)
+        llm_judge_scores = llm_judge(context, user_input, response_only, genre)
         print("[llm_judge_scores]", llm_judge_scores)
 
         print("============ STYLE DISTANCE 실행중... ============")
-        style_cos_scores = style_distance(gt, response)
+        style_cos_scores = style_distance(gt_cumulative, response_cumulative)
         print("[style_distance_scores]", style_cos_scores)
 
         print("============ GENRE CLASSIFIER 실행중... ============")
@@ -259,10 +293,6 @@ def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map, sota_c
         #print("[genre_classifier_scores]", genre_classifier_scores)
         
         all_scores.append({
-            "index": i,
-            "genre": genre,
-            "prompt": user_input,
-            "response": response,
             "sota_comparison_score":sota_scores,
             "llm_judge_score":llm_judge_scores,
             "style_distance_score":style_cos_scores,
@@ -271,7 +301,7 @@ def eval_pipe(prompt_list, answer_list, gt_list, genre_list, context_map, sota_c
 
     return all_scores
 
-def summarize_scores(all_scores, title=None):
+def summarize_scores(all_scores, title=None, prefix=""):
     n = len(all_scores)
 
     sota1_list = [s["sota_comparison_score"]["sota1_cos_sim"] for s in all_scores]
@@ -289,7 +319,11 @@ def summarize_scores(all_scores, title=None):
     def mean(xs):
         return sum(xs) / len(xs) if xs else 0.0
 
-    print("\n========== OVERALL SUMMARY ==========")
+    if title:
+        print(f"\n========== {title} ==========")
+    else:
+        print("\n========== OVERALL SUMMARY ==========")
+
     print(f"#examples: {n}")
 
     print("\n[SOTA cosine similarity]")
@@ -307,9 +341,37 @@ def summarize_scores(all_scores, title=None):
     print("\n[Style distance (GT vs MoLE)]")
     print(f"  style_distance avg (cosine): {mean(style_list):.4f}")
     print("=====================================\n")
+
+    metrics = {
+        f"{prefix}num_examples": n,
+        f"{prefix}sota1_cos_sim_avg": mean(sota1_list),
+        f"{prefix}sota2_cos_sim_avg": mean(sota2_list),
+        f"{prefix}sota3_cos_sim_avg": mean(sota3_list),
+        f"{prefix}sota_avg_cos_sim": mean(sota_avg_list),
+        f"{prefix}judge1_avg": mean(judge1_list),
+        f"{prefix}judge2_avg": mean(judge2_list),
+        f"{prefix}judge3_avg": mean(judge3_list),
+        f"{prefix}judge_overall_avg": mean(judge_avg_list),
+        f"{prefix}style_distance_avg": mean(style_list),
+    }
+
+    wandb.log(metrics)
+
+    return metrics
+
     
 
 def run(args):
+    
+    wandb.init(
+        project="MoLE_inference",
+        config={
+            "gate_weight": args.gate_weight,
+            "type": args.type,
+            "max_new_token": args.max_new_token,
+        },
+    )
+        
     MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
     LORA_BASE_PATH = "/checkpoints"
     GATE_CKPT_PATH = f"/checkpoints/gate_ckpts/mole_{args.gate_weight}.ckpt"
@@ -356,16 +418,21 @@ def run(args):
         "default": "General narrative quality.",
     }
 
-    df = preprocess_csv("eval.csv")
+    df = preprocess_csv("eval.csv",args.type)
     genre_list = df["genre"].tolist()
 
     prompt_list_v1 = df["prompt_v1"].tolist()
     prompt_list_v2 = df["prompt_v2"].tolist()
     prompt_list_v3 = df["prompt_v3"].tolist()
 
-    gt_list_v1 = df["GT1"].tolist()
+    #gt_list_v1 = df["GT1"].tolist()
     gt_list_v2 = df["GT2"].tolist()
-    gt_list_v3 = df["GT3"].tolist()
+    #gt_list_v3 = df["GT3"].tolist()
+    
+    #gt_cumulative_list_v1 = df["target_v1"].tolist()
+    gt_cumulative_list_v2 = df["target_v2"].tolist()
+    #gt_cumulative_list_v3 = df["target_v3"].tolist()
+    
     
     print("\n===== Prompt v1 (sample) =====")
     for i in range(min(3, len(prompt_list_v1))):
@@ -381,7 +448,7 @@ def run(args):
     
     print("\n\n======== Building SOTA centroids (by genre, using v1+v2+v3) ========")
     sota_centroids = build_sota_centroids(
-        [prompt_list_v1, prompt_list_v2, prompt_list_v3],
+        [prompt_list_v2],
         genre_list,
     )
     
@@ -407,22 +474,34 @@ def run(args):
     for p in base_model.parameters():
         p.requires_grad = False
 
-
-    max_new_tokens = 768
-    
+    max_new_tokens = args.max_new_token
     
     print("\n\n======== Running BASE (no MoLE) ========")
-    #answer_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
-    #answer_list_v2_base = generate_with_model(prompt_list_v2, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
-    answer_list_v3_base = generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
+    #answer_list_v1_base, answer_only_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
+    answer_list_v2_base, answer_only_list_v2_base= generate_with_model(prompt_list_v2, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
+    #answer_list_v3_base, answer_only_list_v3_base= generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
 
-    print("\n===== eval v1 =====")
-    #scores_v1_base = eval_pipe(prompt_list_v1, answer_list_v1_base, gt_list_v1, genre_list, context_map, sota_centroids)
-    #scores_v2_base = eval_pipe(prompt_list_v2, answer_list_v2_base, gt_list_v2, genre_list, context_map, sota_centroids)
-    scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, gt_list_v3, genre_list, context_map, sota_centroids)
+    print("\n===== Llama raw outputs =====")
+    for i, (prompt, only_out, gt_only, genre) in enumerate(
+        zip(prompt_list_v2, answer_only_list_v2_base, gt_list_v2, genre_list)
+    ):
+        print(f"\n--- Example {i} / genre={genre} ---")
+        print("[Prompt]")
+        print(prompt)
+        print("\n[GT (only)]")
+        print(gt_only)
+        print("\n[Llama model_only_output]")
+        print(only_out)
+        print("---------------")
+        
+        
+    print("\n===== eval =====")
+    #scores_v1_base = eval_pipe(prompt_list_v1, answer_list_v1_base, answer_only_list_v1_base, gt_cumulative_list_v1, gt_list_v1,  genre_list, context_map, sota_centroids)
+    scores_v2_base = eval_pipe(prompt_list_v2, answer_list_v2_base, answer_only_list_v2_base, gt_cumulative_list_v2, gt_list_v2,  genre_list, context_map, sota_centroids)
+    #scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, answer_only_list_v3_base, gt_cumulative_list_v3, gt_list_v3,  genre_list, context_map, sota_centroids)
 
     #all_base_scores = scores_v1_base + scores_v2_base + scores_v3_base
-    all_base_scores = scores_v3_base
+    all_base_scores = scores_v2_base
     summarize_scores(all_base_scores, title="BASE MODEL SUMMARY")
     
     print("\n\n======== Injecting MoLE and evaluating ========")
@@ -460,22 +539,46 @@ def run(args):
         p.requires_grad = False    
 
     print("\n\n======== Running MoLE ========")
-    #answer_list_v1_mole = generate_with_model(prompt_list_v1, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
-    #answer_list_v2_mole = generate_with_model(prompt_list_v2, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
-    answer_list_v3_mole = generate_with_model(prompt_list_v3, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
+    #answer_list_v1_mole, answer_only_list_v1_mole = generate_with_model(prompt_list_v1, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
+    answer_list_v2_mole, answer_only_list_v2_mole = generate_with_model(prompt_list_v2, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
+    #answer_list_v3_mole, answer_only_list_v3_mole = generate_with_model(prompt_list_v3, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
 
-    #scores_v1_mole = eval_pipe(prompt_list_v1, answer_list_v1_mole, gt_list_v1, genre_list, context_map, sota_centroids)
-    #scores_v2_mole = eval_pipe(prompt_list_v2, answer_list_v2_mole, gt_list_v2, genre_list, context_map, sota_centroids)
-    scores_v3_mole = eval_pipe(prompt_list_v3, answer_list_v3_mole, gt_list_v3, genre_list, context_map, sota_centroids)
+
+    print("\n===== MoLE raw outputs =====")
+    for i, (prompt, only_out, gt_only, genre) in enumerate(
+        zip(
+            prompt_list_v2,
+            answer_only_list_v2_mole,
+            gt_list_v2,
+            genre_list,
+        )
+    ):
+        print(f"\n--- Example {i} / genre={genre} ---")
+        print("[Prompt]")
+        print(prompt)
+        print("\n[GT (only)]")
+        print(gt_only)
+        print("\n[MoLE model_only_output]")
+        print(only_out)
+        print("---------------")
+        
+        
+
+    print("\n===== eval =====")
+    #scores_v1_mole = eval_pipe(prompt_list_v1, answer_list_v1_mole, answer_only_list_v1_mole, gt_cumulative_list_v1, gt_list_v1, genre_list, context_map, sota_centroids)
+    scores_v2_mole = eval_pipe(prompt_list_v2, answer_list_v2_mole, answer_only_list_v2_mole, gt_cumulative_list_v2, gt_list_v2, genre_list, context_map, sota_centroids)
+    #scores_v3_mole = eval_pipe(prompt_list_v3, answer_list_v3_mole, answer_only_list_v3_mole, gt_cumulative_list_v3, gt_list_v3, genre_list, context_map, sota_centroids)
 
     #all_mole_scores = scores_v1_mole + scores_v2_mole + scores_v3_mole
-    all_mole_scores = scores_v3_mole
+    all_mole_scores = scores_v2_mole
     summarize_scores(all_mole_scores, title="MoLE MODEL SUMMARY")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gate_weight", type=str, required=True)
+    parser.add_argument("--type",type=str,required=True)
+    parser.add_argument("--max_new_token",type=int,default=768)
     args = parser.parse_args()
 
     run(args)
