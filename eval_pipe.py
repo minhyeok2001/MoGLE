@@ -5,13 +5,16 @@ import wandb
 import os
 import argparse
 import torch
+import torch.nn.functional as F
 import pandas as pd
 import nest_asyncio
 from collections import defaultdict
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import LongformerForSequenceClassification, LongformerTokenizer
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import cos_sim
 from langchain_groq import ChatGroq
+import asyncio
 
 from utils import inject_layerwise_lora, MultiExpertLoraLinear, capture_attention_mask
 
@@ -20,6 +23,77 @@ nest_asyncio.apply()
 GROQ_KEY = os.environ["GROQ_API_KEY"]
 STYLE_MODEL = SentenceTransformer("StyleDistance/styledistance")
 EMBED_MODEL = SentenceTransformer("intfloat/multilingual-e5-large")
+CLASSIFIER_MODEL_NAME = "allenai/longformer-base-4096"
+GENRE_LABELS = ['Adventure', 'Dystopian', 'Fantasy', 'Horror', 'Sci-Fi']
+CLASSIFIER_CKPT_PATH = "/checkpoints/longformer_classifier.ckpt"
+
+
+class GenrePredictor:
+    def __init__(self, ckpt_path, model_name, num_labels, labels_list):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.labels_list = labels_list
+
+        self.model = LongformerForSequenceClassification.from_pretrained(
+            model_name,
+            num_labels=num_labels,
+        )
+        self.tokenizer = LongformerTokenizer.from_pretrained(model_name)
+
+        if not os.path.exists(ckpt_path):
+            raise FileNotFoundError(f"Classifier ckpt not found: {ckpt_path}")
+        state_dict = torch.load(ckpt_path, map_location=self.device)
+        self.model.load_state_dict(state_dict)
+
+        self.model.to(self.device)
+        self.model.eval()
+
+    def get_soft_labels(self, text: str):
+        inputs = self.tokenizer(
+            text,
+            add_special_tokens=True,
+            max_length=2048,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        )
+
+        input_ids = inputs["input_ids"].to(self.device)
+        attention_mask = inputs["attention_mask"].to(self.device)
+
+        global_attention_mask = torch.zeros_like(input_ids)
+        global_attention_mask[:, 0] = 1
+
+        with torch.no_grad():
+            outputs = self.model(
+                input_ids,
+                attention_mask=attention_mask,
+                global_attention_mask=global_attention_mask,
+            )
+            logits = outputs.logits
+            probs = F.softmax(logits, dim=-1)[0]
+
+        result = {}
+        for idx, prob in enumerate(probs):
+            label_name = (
+                self.labels_list[idx] if idx < len(self.labels_list) else f"Class_{idx}"
+            )
+            result[label_name] = prob.item()
+
+        return result
+
+_GENRE_PREDICTOR = None
+
+def get_genre_predictor():
+    global _GENRE_PREDICTOR
+    if _GENRE_PREDICTOR is None:
+        _GENRE_PREDICTOR = GenrePredictor(
+            CLASSIFIER_CKPT_PATH,
+            CLASSIFIER_MODEL_NAME,
+            num_labels=len(GENRE_LABELS),
+            labels_list=GENRE_LABELS,
+        )
+    return _GENRE_PREDICTOR
+
 
 SOTA1 = ChatGroq(
     model="openai/gpt-oss-120b",
@@ -130,7 +204,81 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
     return full_outputs, model_only_outputs
 
 
+### 배치처리방식
+@torch.no_grad()
+def generate_with_model_batched(
+    prompt_list,
+    tokenizer,
+    model,
+    device="cuda",
+    batch_size=4,
+    max_new_tokens=512,
+):
+    full_outputs = []
+    model_only_outputs = []
+    
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token_id or tokenizer.eos_token
+
+    for i in range(0, len(prompt_list), batch_size):
+        batch_prompts = prompt_list[i : i + batch_size]
+
+        inputs = tokenizer(
+            batch_prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=2048,
+        ).to(device)
+
+        input_ids = inputs["input_ids"]
+
+        out_ids = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+
+        for j in range(len(batch_prompts)):
+            seq = out_ids[j]
+            full_text = tokenizer.decode(seq, skip_special_tokens=True)
+
+            real_input_len = (input_ids[j] != tokenizer.pad_token_id).sum().item()
+
+            gen_ids = seq[real_input_len:]
+            model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
+
+            full_outputs.append(full_text)
+            model_only_outputs.append(model_only_text)
+
+    return full_outputs, model_only_outputs
+
+
 # =================== SOTA COMPARISON ====================
+async def get_sota_outputs(prompt):
+    results = await asyncio.gather(
+        SOTA1.ainvoke(prompt),
+        SOTA2.ainvoke(prompt),
+        SOTA3.ainvoke(prompt),
+        return_exceptions=True
+    )
+
+    outs = []
+    for r in results:
+        outs.append(r.content)
+    return outs
+
+def get_sota_outputs_sync(prompt):
+    try:
+        return asyncio.run(get_sota_outputs(prompt))
+    except RuntimeError:
+        return asyncio.get_event_loop().run_until_complete(get_sota_outputs(prompt))
+
+
 def build_sota_centroids(prompt_lists, genre_list):
     accum = defaultdict(lambda: {"sota1": [], "sota2": [], "sota3": []})
 
@@ -142,9 +290,7 @@ def build_sota_centroids(prompt_lists, genre_list):
         for prompt_list in prompt_lists:
             prompt = str(prompt_list[i])
             
-            sota1_out = SOTA1.invoke(prompt).content
-            sota2_out = SOTA2.invoke(prompt).content
-            sota3_out = SOTA3.invoke(prompt).content
+            sota1_out, sota2_out, sota3_out = get_sota_outputs_sync(prompt)
 
             embs = EMBED_MODEL.encode(
                 [sota1_out, sota2_out, sota3_out],
@@ -251,9 +397,25 @@ def style_distance(gt, response):
     return sim
     
 # =================== GENRE CLASSIFIER ====================
-def genre_classifier(user_input, response, genre):
-    pass
-    
+def genre_classifier(user_input, response_only, genre):
+    predictor = get_genre_predictor()
+    text_for_cls = response_only.strip()
+
+    soft_labels = predictor.get_soft_labels(text_for_cls)
+
+    pred_genre, pred_prob = max(soft_labels.items(), key=lambda x: x[1])
+
+    true_prob = soft_labels.get(str(genre), 0.0)
+
+    correct = 1.0 if pred_genre == str(genre) else 0.0
+
+    return {
+        "pred_genre": pred_genre,
+        "correct": correct,
+        "true_prob": true_prob,
+        "soft_labels": soft_labels,
+    }
+        
 
 # =================== EVAL PIPE ====================
 def eval_pipe(prompt_list, answer_list, answer_only_list, gt_list, gt_only_list, genre_list, context_map, sota_centroids):
@@ -289,14 +451,14 @@ def eval_pipe(prompt_list, answer_list, answer_only_list, gt_list, gt_only_list,
         print("[style_distance_scores]", style_cos_scores)
 
         print("============ GENRE CLASSIFIER 실행중... ============")
-        #genre_classifier_scores = genre_classifier(user_input, response, genre)
-        #print("[genre_classifier_scores]", genre_classifier_scores)
+        genre_classifier_scores = genre_classifier(user_input, response_only, genre)
+        print("[genre_classifier_scores]", genre_classifier_scores)
         
         all_scores.append({
             "sota_comparison_score":sota_scores,
             "llm_judge_score":llm_judge_scores,
             "style_distance_score":style_cos_scores,
-            #"genre_classifier_score":genre_classifier_scores
+            "genre_classifier_score":genre_classifier_scores
         })
 
     return all_scores
@@ -315,10 +477,15 @@ def summarize_scores(all_scores, title=None, prefix=""):
     judge_avg_list = [s["llm_judge_score"]["avg"] for s in all_scores]
 
     style_list = [s["style_distance_score"] for s in all_scores]
-
+    
+    cls_correct_list = [s["genre_classifier_score"]["correct"] for s in all_scores]
+    cls_true_prob_list = [s["genre_classifier_score"]["true_prob"] for s in all_scores]
     def mean(xs):
         return sum(xs) / len(xs) if xs else 0.0
-
+    
+    cls_acc = mean(cls_correct_list)
+    cls_true_prob_avg = mean(cls_true_prob_list)
+    
     if title:
         print(f"\n========== {title} ==========")
     else:
@@ -338,9 +505,12 @@ def summarize_scores(all_scores, title=None, prefix=""):
     print(f"  judge3 avg: {mean(judge3_list):.4f}")
     print(f"  judge overall avg: {mean(judge_avg_list):.4f}")
 
-    print("\n[Style distance (GT vs MoLE)]")
+    print("\n[Style distance]")
     print(f"  style_distance avg (cosine): {mean(style_list):.4f}")
-    print("=====================================\n")
+    
+    print("\n[Genre classifier metrics]")
+    print(f"  genre_cls_acc       : {cls_acc:.4f}")
+    print(f"  genre_cls_true_prob : {cls_true_prob_avg:.4f}")
 
     metrics = {
         f"{prefix}num_examples": n,
@@ -353,7 +523,11 @@ def summarize_scores(all_scores, title=None, prefix=""):
         f"{prefix}judge3_avg": mean(judge3_list),
         f"{prefix}judge_overall_avg": mean(judge_avg_list),
         f"{prefix}style_distance_avg": mean(style_list),
+        f"{prefix}genre_cls_acc" : cls_acc,
+        f"{prefix}genre_cls_true_prob" : cls_true_prob_avg
     }
+
+    print("=====================================\n")
 
     wandb.log(metrics)
 
@@ -478,7 +652,7 @@ def run(args):
     
     print("\n\n======== Running BASE (no MoLE) ========")
     #answer_list_v1_base, answer_only_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
-    answer_list_v2_base, answer_only_list_v2_base= generate_with_model(prompt_list_v2, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
+    answer_list_v2_base, answer_only_list_v2_base= generate_with_model_batched(prompt_list_v2, tokenizer, base_model, device=device, batch_size=args.batch_size, max_new_tokens=max_new_tokens)
     #answer_list_v3_base, answer_only_list_v3_base= generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
 
     print("\n===== Llama raw outputs =====")
@@ -540,7 +714,7 @@ def run(args):
 
     print("\n\n======== Running MoLE ========")
     #answer_list_v1_mole, answer_only_list_v1_mole = generate_with_model(prompt_list_v1, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
-    answer_list_v2_mole, answer_only_list_v2_mole = generate_with_model(prompt_list_v2, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
+    answer_list_v2_mole, answer_only_list_v2_mole = generate_with_model_batched(prompt_list_v2, tokenizer, model_mole, device=device,batch_size=args.batch_size, max_new_tokens=max_new_tokens)
     #answer_list_v3_mole, answer_only_list_v3_mole = generate_with_model(prompt_list_v3, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
 
 
@@ -579,6 +753,7 @@ if __name__ == "__main__":
     parser.add_argument("--gate_weight", type=str, required=True)
     parser.add_argument("--type",type=str,required=True)
     parser.add_argument("--max_new_token",type=int,default=768)
+    parser.add_argument("--batch_size", type=int, default=4)
     args = parser.parse_args()
 
     run(args)
