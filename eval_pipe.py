@@ -241,6 +241,8 @@ def generate_with_model_batched(
             temperature=0.7,
             top_p=0.9,
             pad_token_id=tokenizer.eos_token_id,
+            repetition_penalty=1.1,
+            no_repeat_ngram_size=4,  
         )
 
         for j in range(len(batch_prompts)):
@@ -397,9 +399,9 @@ def style_distance(gt, response):
     return sim
     
 # =================== GENRE CLASSIFIER ====================
-def genre_classifier(user_input, response_only, genre):
+def genre_classifier(user_input, response_cumulative, genre):
     predictor = get_genre_predictor()
-    text_for_cls = response_only.strip()
+    text_for_cls = response_cumulative.strip()
 
     soft_labels = predictor.get_soft_labels(text_for_cls)
 
@@ -451,7 +453,7 @@ def eval_pipe(prompt_list, answer_list, answer_only_list, gt_list, gt_only_list,
         print("[style_distance_scores]", style_cos_scores)
 
         print("============ GENRE CLASSIFIER 실행중... ============")
-        genre_classifier_scores = genre_classifier(user_input, response_only, genre)
+        genre_classifier_scores = genre_classifier(user_input, response_cumulative, genre)
         print("[genre_classifier_scores]", genre_classifier_scores)
         
         all_scores.append({
