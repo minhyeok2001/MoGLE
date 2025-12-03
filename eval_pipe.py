@@ -412,17 +412,17 @@ def run(args):
     
     
     print("\n\n======== Running BASE (no MoLE) ========")
-    answer_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
+    #answer_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
     #answer_list_v2_base = generate_with_model(prompt_list_v2, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
-    #answer_list_v3_base = generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
+    answer_list_v3_base = generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
 
     print("\n===== eval v1 =====")
-    scores_v1_base = eval_pipe(prompt_list_v1, answer_list_v1_base, gt_list_v1, genre_list, context_map, sota_centroids)
+    #scores_v1_base = eval_pipe(prompt_list_v1, answer_list_v1_base, gt_list_v1, genre_list, context_map, sota_centroids)
     #scores_v2_base = eval_pipe(prompt_list_v2, answer_list_v2_base, gt_list_v2, genre_list, context_map, sota_centroids)
-    #scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, gt_list_v3, genre_list, context_map, sota_centroids)
+    scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, gt_list_v3, genre_list, context_map, sota_centroids)
 
     #all_base_scores = scores_v1_base + scores_v2_base + scores_v3_base
-    all_base_scores = scores_v1_base
+    all_base_scores = scores_v3_base
     summarize_scores(all_base_scores, title="BASE MODEL SUMMARY")
     
     print("\n\n======== Injecting MoLE and evaluating ========")
@@ -460,16 +460,16 @@ def run(args):
         p.requires_grad = False    
 
     print("\n\n======== Running MoLE ========")
-    answer_list_v1_mole = generate_with_model(prompt_list_v1, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
+    #answer_list_v1_mole = generate_with_model(prompt_list_v1, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
     #answer_list_v2_mole = generate_with_model(prompt_list_v2, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
-    #answer_list_v3_mole = generate_with_model(prompt_list_v3, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
+    answer_list_v3_mole = generate_with_model(prompt_list_v3, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
 
-    scores_v1_mole = eval_pipe(prompt_list_v1, answer_list_v1_mole, gt_list_v1, genre_list, context_map, sota_centroids)
+    #scores_v1_mole = eval_pipe(prompt_list_v1, answer_list_v1_mole, gt_list_v1, genre_list, context_map, sota_centroids)
     #scores_v2_mole = eval_pipe(prompt_list_v2, answer_list_v2_mole, gt_list_v2, genre_list, context_map, sota_centroids)
-    #scores_v3_mole = eval_pipe(prompt_list_v3, answer_list_v3_mole, gt_list_v3, genre_list, context_map, sota_centroids)
+    scores_v3_mole = eval_pipe(prompt_list_v3, answer_list_v3_mole, gt_list_v3, genre_list, context_map, sota_centroids)
 
     #all_mole_scores = scores_v1_mole + scores_v2_mole + scores_v3_mole
-    all_mole_scores = scores_v1_mole
+    all_mole_scores = scores_v3_mole
     summarize_scores(all_mole_scores, title="MoLE MODEL SUMMARY")
 
 
