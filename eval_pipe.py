@@ -96,17 +96,17 @@ def get_genre_predictor():
 
 
 SOTA1 = ChatGroq(
-    model="openai/gpt-oss-120b",
+    model="qwen/qwen3-32b",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
 SOTA2 = ChatGroq(
-    model="moonshotai/kimi-k2-instruct-0905",
+    model="meta-llama/llama-4-scout-17b-16e-instruct",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
 SOTA3 = ChatGroq(
-    model="meta-llama/llama-4-maverick-17b-128e-instruct",
+    model="moonshotai/kimi-k2-instruct",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
