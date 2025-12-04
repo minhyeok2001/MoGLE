@@ -16,7 +16,8 @@ from sentence_transformers.util import cos_sim
 from langchain_groq import ChatGroq
 import asyncio
 
-from utils import inject_layerwise_lora, MultiExpertLoraLinear, capture_attention_mask
+from utils import inject_single_lora, MultiExpertLoraLinear, capture_attention_mask
+
 
 nest_asyncio.apply()
 
@@ -111,7 +112,7 @@ SOTA3 = ChatGroq(
     api_key=GROQ_KEY,
 )
 
-def preprocess_csv(csv_path, split_type="all"):
+def preprocess_csv(csv_path, split_type):
     df = pd.read_csv(csv_path)
 
     n = len(df)
@@ -167,43 +168,6 @@ def preprocess_csv(csv_path, split_type="all"):
     prompts = df.apply(build_prompts, axis=1)
     df = pd.concat([df, prompts], axis=1)
     return df
-
-
-@torch.no_grad()
-def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_tokens=512):
-    full_outputs = []
-    model_only_outputs = []
-
-    for p in prompt_list:
-        inputs = tokenizer(
-            p,
-            return_tensors="pt",
-            truncation=True,
-            max_length=2048,
-        ).to(device)
-
-        input_ids = inputs["input_ids"]
-
-        out_ids = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
-            pad_token_id=tokenizer.eos_token_id,
-        )
-
-        # 전체 출력 (prompt + model)
-        full_output = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-
-        # 모델이 새로 생성한 부분만
-        generated_ids = out_ids[0][input_ids.shape[1]:]
-        model_only_output = tokenizer.decode(generated_ids, skip_special_tokens=True)
-
-        full_outputs.append(full_output)
-        model_only_outputs.append(model_only_output)
-
-    return full_outputs, model_only_outputs
 
 
 ### 배치처리방식
@@ -263,64 +227,6 @@ def generate_with_model_batched(
 
 
 # =================== SOTA COMPARISON ====================
-async def get_sota_outputs(prompt):
-    results = await asyncio.gather(
-        SOTA1.ainvoke(prompt),
-        SOTA2.ainvoke(prompt),
-        SOTA3.ainvoke(prompt),
-        return_exceptions=True
-    )
-
-    outs = []
-    for r in results:
-        outs.append(r.content)
-    return outs
-
-def get_sota_outputs_sync(prompt):
-    try:
-        return asyncio.run(get_sota_outputs(prompt))
-    except RuntimeError:
-        return asyncio.get_event_loop().run_until_complete(get_sota_outputs(prompt))
-
-
-def build_sota_centroids(prompt_lists, genre_list):
-    accum = defaultdict(lambda: {"sota1": [], "sota2": [], "sota3": []})
-
-    num_examples = len(genre_list)
-
-    for i in range(num_examples):
-        g = str(genre_list[i])
-
-        for prompt_list in prompt_lists:
-            prompt = str(prompt_list[i])
-            
-            sota1_out, sota2_out, sota3_out = get_sota_outputs_sync(prompt)
-
-            embs = EMBED_MODEL.encode(
-                [sota1_out, sota2_out, sota3_out],
-                convert_to_tensor=True,
-            )
-            e1, e2, e3 = embs[0], embs[1], embs[2]
-
-            accum[g]["sota1"].append(e1)
-            accum[g]["sota2"].append(e2)
-            accum[g]["sota3"].append(e3)
-
-    centroids = {}
-    for g, d in accum.items():
-        sota1_cent = torch.stack(d["sota1"], dim=0).mean(dim=0)
-        sota2_cent = torch.stack(d["sota2"], dim=0).mean(dim=0)
-        sota3_cent = torch.stack(d["sota3"], dim=0).mean(dim=0)
-        avg_cent   = torch.stack([sota1_cent, sota2_cent, sota3_cent], dim=0).mean(dim=0)
-
-        centroids[g] = {
-            "sota1": sota1_cent,
-            "sota2": sota2_cent,
-            "sota3": sota3_cent,
-            "avg":   avg_cent,
-        }
-
-    return centroids
 
 def sota_comparison(response, genre, sota_centroids):
     g = str(genre)
@@ -543,7 +449,7 @@ def run(args):
     wandb.init(
         project="MoLE_inference",
         config={
-            "genre": args.genre,
+            "type": args.type,
             "max_new_token": args.max_new_token,
         },
     )
@@ -592,11 +498,7 @@ def run(args):
         "default": "General narrative quality.",
     }
 
-    df = preprocess_csv("eval.csv")
-    if args.genre.lower() != "all":
-        df = df[df["genre"] == args.genre].reset_index(drop=True)
-        if len(df) == 0:
-            raise RuntimeError(f"CSV 안에 genre가 '{args.genre}' 인 행이 없어~")
+    df = preprocess_csv("eval.csv",args.type)
     
     genre_list = df["genre"].tolist()
 
@@ -629,15 +531,22 @@ def run(args):
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         torch_dtype=torch.bfloat16,
-        device_map="auto",  
+        device_map="auto",
+    )
+    
+    base_model = inject_single_lora(
+        base_model,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
+        r=52,
+        lora_alpha=104,
     )
 
-    path = os.path.join("checkpoints",f"ft_{args.genre}.ckpt",)
+    lora_ckpt_path = "/checkpoints/expert_all_scaled.ckpt"
+    print(f"== Loading LoRA ckpt from: {lora_ckpt_path}")
+    lora_state_dict = torch.load(lora_ckpt_path, map_location="cpu")
 
-    print(f"== Loading fine-tuned ckpt from: {path}")
-    state_dict = torch.load(path, map_location="cpu")
-    base_model.load_state_dict(state_dict)
-
+    missing_keys, unexpected_keys = base_model.load_state_dict(lora_state_dict, strict=False)
+    print(f"LoRA loaded. missing_keys: {len(missing_keys)}, unexpected_keys: {len(unexpected_keys)}")
 
     base_model.to(device)
     base_model.eval()
