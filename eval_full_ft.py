@@ -674,7 +674,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--type",type=str,required=True)
+    parser.add_argument("--genre",type=str,required=True)
     parser.add_argument("--max_new_token",type=int,default=768)
     parser.add_argument("--batch_size", type=int, default=4)
     args = parser.parse_args()
