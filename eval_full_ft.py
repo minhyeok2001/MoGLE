@@ -111,7 +111,7 @@ SOTA3 = ChatGroq(
     api_key=GROQ_KEY,
 )
 
-def preprocess_csv(csv_path, split_type):
+def preprocess_csv(csv_path, split_type="all"):
     df = pd.read_csv(csv_path)
 
     n = len(df)
@@ -119,6 +119,8 @@ def preprocess_csv(csv_path, split_type):
         df = df.iloc[: n // 2].reset_index(drop=True)
     elif split_type == "B":
         df = df.iloc[n // 2 :].reset_index(drop=True)
+    elif split_type =="all":
+        df = df
     else:
         raise RuntimeError("유효한 TYPE 주세요")
 
