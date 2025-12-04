@@ -618,6 +618,9 @@ def run(args):
 
     sota_centroids = torch.load(SOTA_CENTROID_PATH, map_location="cpu")
     sota_centroids = sota_centroids.to(device)
+    for genre in sota_centroids:
+        for key in sota_centroids[genre]:
+            sota_centroids[genre][key] = sota_centroids[genre][key].to(device)
     print("Loaded SOTA centroids!")
     
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
