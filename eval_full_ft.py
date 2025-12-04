@@ -617,6 +617,7 @@ def run(args):
         raise RuntimeError(f"SOTA centroid file not found: {SOTA_CENTROID_PATH}")
 
     sota_centroids = torch.load(SOTA_CENTROID_PATH, map_location="cpu")
+    sota_centroids.to(device)
     print("Loaded SOTA centroids!")
     
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
