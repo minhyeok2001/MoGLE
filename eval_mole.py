@@ -651,34 +651,7 @@ def run(args):
         p.requires_grad = False
 
     max_new_tokens = args.max_new_token
-    
-    print("\n\n======== Running BASE (no MoLE) ========")
-    #answer_list_v1_base, answer_only_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
-    answer_list_v2_base, answer_only_list_v2_base= generate_with_model_batched(prompt_list_v2, tokenizer, base_model, device=device, batch_size=args.batch_size, max_new_tokens=max_new_tokens)
-    #answer_list_v3_base, answer_only_list_v3_base= generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
 
-    print("\n===== Llama raw outputs =====")
-    for i, (prompt, only_out, gt_only, genre) in enumerate(
-        zip(prompt_list_v2, answer_only_list_v2_base, gt_list_v2, genre_list)
-    ):
-        print(f"\n--- Example {i} / genre={genre} ---")
-        print("[Prompt]")
-        print(prompt)
-        print("\n[GT (only)]")
-        print(gt_only)
-        print("\n[Llama model_only_output]")
-        print(only_out)
-        print("---------------")
-        
-        
-    print("\n===== eval =====")
-    #scores_v1_base = eval_pipe(prompt_list_v1, answer_list_v1_base, answer_only_list_v1_base, gt_cumulative_list_v1, gt_list_v1,  genre_list, context_map, sota_centroids)
-    scores_v2_base = eval_pipe(prompt_list_v2, answer_list_v2_base, answer_only_list_v2_base, gt_cumulative_list_v2, gt_list_v2,  genre_list, context_map, sota_centroids)
-    #scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, answer_only_list_v3_base, gt_cumulative_list_v3, gt_list_v3,  genre_list, context_map, sota_centroids)
-
-    #all_base_scores = scores_v1_base + scores_v2_base + scores_v3_base
-    all_base_scores = scores_v2_base
-    summarize_scores(all_base_scores, title="BASE MODEL SUMMARY")
     
     print("\n\n======== Injecting MoLE and evaluating ========")
 

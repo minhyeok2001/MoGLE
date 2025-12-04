@@ -15,6 +15,9 @@ class GenreStoryDataset(Dataset):
         seed=42,
         training_target="lora",
     ):
+        if genres == "all":
+            genres = None
+            
         df = pd.read_csv(csv_path)
         length_df = len(df)
         cut = length_df // 3
