@@ -96,7 +96,7 @@ def get_genre_predictor():
 
 
 SOTA1 = ChatGroq(
-    model="qwen/qwen3-32b",
+    model="moonshotai/kimi-k2-instruct",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
