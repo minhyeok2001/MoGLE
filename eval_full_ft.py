@@ -101,12 +101,12 @@ SOTA1 = ChatGroq(
     api_key=GROQ_KEY,
 )
 SOTA2 = ChatGroq(
-    model="meta-llama/llama-4-scout-17b-16e-instruct",
+    model="meta-llama/llama-4-maverick-17b-128e-instruct ",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
 SOTA3 = ChatGroq(
-    model="moonshotai/kimi-k2-instruct",
+    model="moonshotai/kimi-k2-instruct-0905",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
