@@ -631,13 +631,14 @@ def run(args):
         torch_dtype=torch.bfloat16,
         device_map="auto",  
     )
-    """
+
     path = os.path.join("checkpoints",f"ft_{args.genre}.ckpt",)
 
     print(f"== Loading fine-tuned ckpt from: {path}")
     state_dict = torch.load(path, map_location="cpu")
     base_model.load_state_dict(state_dict)
-    """
+
+
     base_model.to(device)
     base_model.eval()
     for p in base_model.parameters():
