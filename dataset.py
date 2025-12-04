@@ -26,6 +26,8 @@ class GenreStoryDataset(Dataset):
             df = df.iloc[: 2 * cut]
         elif training_target == "mole":
             df = df.iloc[2 * cut :]
+        elif training_target == "all":
+            df = df
         else:
             raise RuntimeError("lora / mole 둘중 선택 !!")
 

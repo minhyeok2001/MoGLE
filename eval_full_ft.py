@@ -26,7 +26,7 @@ EMBED_MODEL = SentenceTransformer("intfloat/multilingual-e5-large")
 CLASSIFIER_MODEL_NAME = "allenai/longformer-base-4096"
 GENRE_LABELS = ['Adventure', 'Dystopian', 'Fantasy', 'Horror', 'Sci-Fi']
 CLASSIFIER_CKPT_PATH = "/checkpoints/longformer_classifier.ckpt"
-
+SOTA_CENTROID_PATH = "/checkpoints/sota_centroids.pt"
 
 class GenrePredictor:
     def __init__(self, ckpt_path, model_name, num_labels, labels_list):
@@ -535,20 +535,18 @@ def summarize_scores(all_scores, title=None, prefix=""):
 
     return metrics
 
-    
 
 def run(args):
     
     wandb.init(
         project="MoLE_inference",
         config={
-            "type": args.type,
+            "genre": args.genre,
             "max_new_token": args.max_new_token,
         },
     )
         
     MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-    LORA_BASE_PATH = "/checkpoints"
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA required")
@@ -592,68 +590,61 @@ def run(args):
         "default": "General narrative quality.",
     }
 
-    df = preprocess_csv("eval.csv",args.type)
+    df = preprocess_csv("eval.csv")
+    if args.genre.lower() != "all":
+        df = df[df["genre"] == args.genre].reset_index(drop=True)
+        if len(df) == 0:
+            raise RuntimeError(f"CSV 안에 genre가 '{args.genre}' 인 행이 없어~")
+    
     genre_list = df["genre"].tolist()
 
-    prompt_list_v1 = df["prompt_v1"].tolist()
     prompt_list_v2 = df["prompt_v2"].tolist()
-    prompt_list_v3 = df["prompt_v3"].tolist()
 
-    #gt_list_v1 = df["GT1"].tolist()
     gt_list_v2 = df["GT2"].tolist()
-    #gt_list_v3 = df["GT3"].tolist()
     
-    #gt_cumulative_list_v1 = df["target_v1"].tolist()
     gt_cumulative_list_v2 = df["target_v2"].tolist()
-    #gt_cumulative_list_v3 = df["target_v3"].tolist()
     
-    
-    print("\n===== Prompt v1 (sample) =====")
-    for i in range(min(3, len(prompt_list_v1))):
-        print(f"[{i}] {prompt_list_v1[i]}\n")
-
     print("\n===== Prompt v2 (sample) =====")
     for i in range(min(3, len(prompt_list_v2))):
         print(f"[{i}] {prompt_list_v2[i]}\n")
-
-    print("\n===== Prompt v3 (sample) =====")
-    for i in range(min(3, len(prompt_list_v3))):
-        print(f"[{i}] {prompt_list_v3[i]}\n")
     
-    print("\n\n======== Building SOTA centroids (by genre, using v1+v2+v3) ========")
-    sota_centroids = build_sota_centroids(
-        [prompt_list_v2],
-        genre_list,
-    )
+    print("\n\n======== Loading precomputed SOTA centroids ========")
+    SOTA_CENTROID_PATH = "/checkpoints/sota_centroids.pt"
+
+    if not os.path.exists(SOTA_CENTROID_PATH):
+        raise RuntimeError(f"SOTA centroid file not found: {SOTA_CENTROID_PATH}")
+
+    sota_centroids = torch.load(SOTA_CENTROID_PATH, map_location="cpu")
+    print("Loaded SOTA centroids!")
     
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4",
-    )
-
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        quantization_config=bnb_config,
-        device_map="auto",
+        torch_dtype=torch.bfloat16,
+        device_map="auto",  
     )
+    
+    path = os.path.join("checkpoints",args.ft_ckpt_path)
 
-    base_model.register_forward_pre_hook(capture_attention_mask, with_kwargs=True)
+    print(f"== Loading fine-tuned ckpt from: {path}")
+    state_dict = torch.load(path, map_location="cpu")
+    base_model.load_state_dict(state_dict)
+
+    base_model.to(device)
     base_model.eval()
     for p in base_model.parameters():
         p.requires_grad = False
 
+    base_model.register_forward_pre_hook(capture_attention_mask, with_kwargs=True)
+    base_model.eval()
+
     max_new_tokens = args.max_new_token
     
     print("\n\n======== Running BASE (no MoLE) ========")
-    #answer_list_v1_base, answer_only_list_v1_base = generate_with_model(prompt_list_v1, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
     answer_list_v2_base, answer_only_list_v2_base= generate_with_model_batched(prompt_list_v2, tokenizer, base_model, device=device, batch_size=args.batch_size, max_new_tokens=max_new_tokens)
-    #answer_list_v3_base, answer_only_list_v3_base= generate_with_model(prompt_list_v3, tokenizer, base_model, device=device, max_new_tokens=max_new_tokens)
 
     print("\n===== Llama raw outputs =====")
     for i, (prompt, only_out, gt_only, genre) in enumerate(
@@ -670,20 +661,17 @@ def run(args):
         
         
     print("\n===== eval =====")
-    #scores_v1_base = eval_pipe(prompt_list_v1, answer_list_v1_base, answer_only_list_v1_base, gt_cumulative_list_v1, gt_list_v1,  genre_list, context_map, sota_centroids)
     scores_v2_base = eval_pipe(prompt_list_v2, answer_list_v2_base, answer_only_list_v2_base, gt_cumulative_list_v2, gt_list_v2,  genre_list, context_map, sota_centroids)
-    #scores_v3_base = eval_pipe(prompt_list_v3, answer_list_v3_base, answer_only_list_v3_base, gt_cumulative_list_v3, gt_list_v3,  genre_list, context_map, sota_centroids)
-
-    #all_base_scores = scores_v1_base + scores_v2_base + scores_v3_base
     all_base_scores = scores_v2_base
     summarize_scores(all_base_scores, title="BASE MODEL SUMMARY")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--type",type=str,required=True)
+    parser.add_argument("--genre", type=str, required=True)
     parser.add_argument("--max_new_token",type=int,default=768)
     parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--ft_ckpt_path", type=str, required=True)
     args = parser.parse_args()
 
     run(args)

@@ -39,14 +39,12 @@ def run(args):
         tokenizer.pad_token = tokenizer.eos_token
 
     print("=== 풀파인튠용 모델 로딩 (bf16) ... ===")
-    # 4bit quantization 제거하고, bf16 / fp16 로 바로 로딩
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        torch_dtype=torch.bfloat16,   # 안되면 torch.float16 으로 바꿔도 됨
+        torch_dtype=torch.bfloat16,   
         device_map="auto",
     )
 
-    # 풀파인튠이니까 전부 requires_grad=True (기본값이지만 명시해둠)
     for p in model.parameters():
         p.requires_grad = True
 
@@ -59,14 +57,14 @@ def run(args):
         genres=args.genre,
         max_len=args.max_len,
         train_flag=True,
-        training_target="lora",  
+        training_target="all",  
     )
     val_dataset = GenreStoryDataset(
         tokenizer=tokenizer,
         genres=args.genre,
         max_len=args.max_len,
         train_flag=False,
-        training_target="lora",
+        training_target="all",
     )
 
     train_dataloader = DataLoader(
@@ -153,21 +151,20 @@ def run(args):
                 "epoch": epoch,
             }
         )
+        
+    os.makedirs(args.save_dir, exist_ok=True)
 
-    save_dir = os.path.join(args.save_dir, f"ft_{args.genre}")
-    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(args.save_dir, f"ft_{args.genre}.ckpt")
+    torch.save(model.state_dict(), save_path)
 
-    model.save_pretrained(save_dir)
-    tokenizer.save_pretrained(save_dir)
-    print(f"Full finetuned model saved at: {save_dir}")
-
+    print(f"Full FT saved to ckpt: {save_path}")
     wandb.finish()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--genre", type=str, required=True)
-    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--max_len", type=int, default=512)
