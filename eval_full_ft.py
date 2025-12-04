@@ -632,7 +632,7 @@ def run(args):
         device_map="auto",  
     )
 
-    path = os.path.join("checkpoints",f"ft_{args.genre}.ckpt",)
+    path = os.path.join("/checkpoints",f"ft_{args.genre}.ckpt",)
 
     print(f"== Loading fine-tuned ckpt from: {path}")
     state_dict = torch.load(path, map_location="cpu")
