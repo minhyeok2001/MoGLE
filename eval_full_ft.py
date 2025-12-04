@@ -628,13 +628,13 @@ def run(args):
         torch_dtype=torch.bfloat16,
         device_map="auto",  
     )
-    
-    path = os.path.join("checkpoints",args.ft_ckpt_path)
+    """
+    path = os.path.join("checkpoints",f"ft_{args.genre}.ckpt",)
 
     print(f"== Loading fine-tuned ckpt from: {path}")
     state_dict = torch.load(path, map_location="cpu")
     base_model.load_state_dict(state_dict)
-
+    """
     base_model.to(device)
     base_model.eval()
     for p in base_model.parameters():
@@ -673,7 +673,6 @@ if __name__ == "__main__":
     parser.add_argument("--genre", type=str, required=True)
     parser.add_argument("--max_new_token",type=int,default=768)
     parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--ft_ckpt_path", type=str, required=True)
     args = parser.parse_args()
 
     run(args)
