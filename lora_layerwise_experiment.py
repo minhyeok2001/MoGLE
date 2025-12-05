@@ -313,7 +313,7 @@ def run(args):
         print("GEN PROMPT LIST :", gen_prompt_list[0])
         
         generate_with_model_batched(
-            prompt_list,
+            gen_prompt_list,
             tokenizer,
             model,
             device=device,
