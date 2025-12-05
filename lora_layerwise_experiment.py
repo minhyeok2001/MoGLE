@@ -240,10 +240,12 @@ def generate_with_model_batched(
             model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             print("idx : ", j)
-            print("full_outs : ", full_text)
+            print("inputs : ", full_text)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             print("model_only_outs : ", model_only_text)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            
+            exit()
 
 
 def run(args):
