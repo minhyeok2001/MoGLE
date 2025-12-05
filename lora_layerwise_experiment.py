@@ -13,7 +13,193 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from utils import inject_single_lora
 from module import SingleLoraLinear
+from langchain_groq import ChatGroq  
 import wandb
+
+SOTA1 = ChatGroq(
+    model="qwen/qwen3-32b",
+    temperature=0.0,
+    api_key=GROQ_KEY,
+)
+
+SOTA2 = ChatGroq(
+    model="meta-llama/llama-4-maverick-17b-128e-instruct",
+    temperature=0.0,
+    api_key=GROQ_KEY,
+)
+
+SOTA3 = ChatGroq(
+    model="moonshotai/kimi-k2-instruct-0905",
+    temperature=0.0,
+    api_key=GROQ_KEY,
+)
+
+SOTA4 = ChatGroq(
+    model="groq/compound", 
+    temperature=0.0,
+    api_key=GROQ_KEY,
+)
+
+SOTA5 = ChatGroq(
+    model="allam-2-7b",
+    temperature=0.0,
+    api_key=GROQ_KEY,
+)
+
+evaluation_criteria = {
+    "vividness": """
+    **1. Descriptive Vividness & Immersion**
+    - Does the model use rich sensory imagery (visual, tactile, auditory)?
+    - Does it use literary modifiers effectively to stimulate imagination?
+    - Does it provide a sense of presence beyond simple information delivery?
+    """,
+    "tone": """
+    **2. Tone & Atmosphere Consistency**
+    - Does it maintain a consistent tone appropriate for the genre (e.g., Archaic, Cyberpunk, Urgent)?
+    - Does it effectively build suspense or a dramatic atmosphere?
+    - Is the sentence length and pacing effective for the mood?
+    """,
+    "progression": """
+    **3. Narrative Progression & Coherence**
+    - Is there logical continuity with the previous context?
+    - Does it introduce new conflicts, mysteries, or characters to drive the story?
+    - Are NPC actions and dialogues consistent with their established characters?
+    """
+}
+
+
+def judge_single_criterion(llm, criterion_text, user_input, response_only):
+    prompt = f"""
+You are an expert critic and judge for TRPG (Tabletop Role-Playing Game) scenarios and creative writing.
+
+Your task is to evaluate the **Model's New Reply** based specifically on the following criterion:
+
+[Target Criterion]
+{criterion_text}
+
+You must assess how well the model satisfies this specific criterion, considering the [Previous Conversation Context].
+
+[Scoring Rules]
+- 0.0: The criterion is completely ignored or failed.
+- 0.5: The criterion is partially met but lacks depth or has noticeable flaws.
+- 1.0: The criterion is perfectly executed with high quality.
+- Return ONLY a single floating-point number between 0.0 and 1.0. Do not provide any explanation.
+
+[Previous Conversation Context]
+{user_input}
+
+[Model's New Reply]
+{response_only}
+""".strip()
+
+    result = llm.invoke(prompt)
+    score_str = result.content.strip()
+
+    try:
+        return float(score_str)
+    except:
+        return 0.0
+
+
+def llm_judge_criterion(criterion_text, user_input, response_only):
+    base_scores = {
+        "judge1": judge_single_criterion(SOTA1, criterion_text, user_input, response_only),
+        "judge2": judge_single_criterion(SOTA2, criterion_text, user_input, response_only),
+        "judge3": judge_single_criterion(SOTA3, criterion_text, user_input, response_only),
+        "judge4": judge_single_criterion(SOTA4, criterion_text, user_input, response_only),
+        "judge5": judge_single_criterion(SOTA5, criterion_text, user_input, response_only),
+    }
+    avg = sum(base_scores.values()) / len(base_scores)
+
+    scores = {**base_scores, "avg": avg}
+    return scores
+
+
+
+def run_llm_judge_for_all_criteria(prompt_list, model_only_outputs):
+    """
+    prompt_list        : gen_prompt_list (full prompt)
+    model_only_outputs : generate_with_model 에서 나온 model_only_outputs
+    return:
+        all_scores: {
+            "vividness": [ {judge1..5, avg}, ... ],
+            "tone": [...],
+            "progression": [...]
+        }
+    """
+    all_scores = {key: [] for key in evaluation_criteria.keys()}
+
+    for i, (user_input, response_only) in enumerate(zip(prompt_list, model_only_outputs)):
+        print(f"\n=== Example {i} ===")
+        print("[Prompt]")
+        print(user_input)
+        print("\n[Model Only Output]")
+        print(response_only)
+
+        for crit_key, crit_text in evaluation_criteria.items():
+            print(f"\n  >>> LLM JUDGE ({crit_key}) 실행중...")
+            scores = llm_judge_criterion(crit_text, user_input, response_only)
+            print(f"  [{crit_key}_scores]", scores)
+
+            all_scores[crit_key].append(scores)
+
+    return all_scores
+
+
+def summarize_llm_judge_all(all_scores, prefix=""):
+    """
+    all_scores: run_llm_judge_for_all_criteria 의 리턴값
+    prefix   : wandb metric 이름 앞에 붙일 prefix (옵션)
+    """
+    def mean(xs):
+        return sum(xs) / len(xs) if xs else 0.0
+
+    metrics = {}
+
+    print("\n========== LLM JUDGE SUMMARY (by criterion) ==========")
+
+    for crit_key, score_list in all_scores.items():
+        if not score_list:
+            continue
+
+        judge1_list = [s["judge1"] for s in score_list]
+        judge2_list = [s["judge2"] for s in score_list]
+        judge3_list = [s["judge3"] for s in score_list]
+        judge4_list = [s["judge4"] for s in score_list]
+        judge5_list = [s["judge5"] for s in score_list]
+        avg_list    = [s["avg"]    for s in score_list]
+
+        m1 = mean(judge1_list)
+        m2 = mean(judge2_list)
+        m3 = mean(judge3_list)
+        m4 = mean(judge4_list)
+        m5 = mean(judge5_list)
+        ma = mean(avg_list)
+
+        print(f"\n[{crit_key}]")
+        print(f"  judge1 avg: {m1:.4f}")
+        print(f"  judge2 avg: {m2:.4f}")
+        print(f"  judge3 avg: {m3:.4f}")
+        print(f"  judge4 avg: {m4:.4f}")
+        print(f"  judge5 avg: {m5:.4f}")
+        print(f"  overall avg: {ma:.4f}")
+
+        metrics[f"{prefix}{crit_key}_judge1_avg"] = m1
+        metrics[f"{prefix}{crit_key}_judge2_avg"] = m2
+        metrics[f"{prefix}{crit_key}_judge3_avg"] = m3
+        metrics[f"{prefix}{crit_key}_judge4_avg"] = m4
+        metrics[f"{prefix}{crit_key}_judge5_avg"] = m5
+        metrics[f"{prefix}{crit_key}_overall_avg"] = ma
+
+    print("======================================================\n")
+
+    try:
+        wandb.log(metrics)
+    except:
+        pass
+
+    return metrics
+
 
 
 MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
@@ -37,7 +223,6 @@ def debug_print_lora_layers(model: nn.Module, start_layer: int, end_layer: int):
             if layer_idx is None:
                 continue
 
-            # norm이 0이면 완전히 꺼진 상태, 0보다 크면 LoRA가 살아있음
             a_norm = module.lora_A.weight.abs().sum().item()
             b_norm = module.lora_B.weight.abs().sum().item()
             has_lora = (a_norm > 0) or (b_norm > 0)
@@ -200,9 +385,9 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
         lines = text.splitlines()
         safe = []
         for line in lines:
-            if line.strip().startswith("user:"):
+            if line.strip().startswith("user"):
                 break
-            elif line.strip().startswith("assistant:"):
+            elif line.strip().startswith("assistant"):
                 break
             safe.append(line)
         return "\n".join(safe).rstrip()
@@ -237,8 +422,7 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
         else:
             gen_ids = out_ids[0][input_ids.shape[1]:]
             raw_model_part = tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip()
-
-        # ← 여기서 user: 등장하면 그 이전까지 잘라냄
+            
         model_only_text = cut_before_user(raw_model_part)
 
         full_outputs.append(full_text)
@@ -251,7 +435,7 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
         print(model_only_text)
         print("="*80 + "\n")
 
-    return full_outputs, model_only_outputs
+    return full_outputs,  model_only_outputs
 
 def run(args):
     
@@ -326,15 +510,17 @@ def run(args):
 
         print("GEN PROMPT LIST :", gen_prompt_list[0])
         
-        generate_with_model(
+        full_outputs, model_only_outputs = generate_with_model(
             gen_prompt_list,
             tokenizer,
             model,
             device=device,
             max_new_tokens=args.max_new_tokens,
-        )
-        
+        )                
+        all_llm_judge_scores = run_llm_judge_for_all_criteria(gen_prompt_list, model_only_outputs)
 
+        judge_metrics = summarize_llm_judge_all(all_llm_judge_scores, prefix="layerwise_")
+            
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
