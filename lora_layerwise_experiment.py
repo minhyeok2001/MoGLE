@@ -189,7 +189,6 @@ def zero_out_lora_outside_layer_range(
                 module.lora_A.weight.zero_()
                 module.lora_B.weight.zero_()
 
-
 @torch.no_grad()
 def generate_with_model_batched(
     prompt_list,
@@ -204,7 +203,7 @@ def generate_with_model_batched(
     
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token_id or tokenizer.eos_token
+        tokenizer.pad_token = tokenizer.eos_token 
 
     for i in range(0, len(prompt_list), batch_size):
         batch_prompts = prompt_list[i : i + batch_size]
@@ -233,20 +232,21 @@ def generate_with_model_batched(
         for j in range(len(batch_prompts)):
             seq = out_ids[j]
             full_text = tokenizer.decode(seq, skip_special_tokens=True)
+            input_text = tokenizer.decode(input_ids[j], skip_special_tokens=True)
+            model_only_text = full_text
+            if full_text.startswith(input_text):
+                model_only_text = full_text[len(input_text):].lstrip()
+            else:
+                real_input_len = (input_ids[j] != tokenizer.pad_token_id).sum().item()
+                gen_ids = seq[real_input_len:]
+                model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
 
-            real_input_len = (input_ids[j] != tokenizer.pad_token_id).sum().item()
-
-            gen_ids = seq[real_input_len:]
-            model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             print("idx : ", j)
             print("inputs : ", full_text)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             print("model_only_outs : ", model_only_text)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            
-            exit()
-
 
 def run(args):
     
