@@ -39,7 +39,7 @@ SOTA3 = ChatGroq(
 )
 
 SOTA4 = ChatGroq(
-    model="groq/compound", 
+    model="llama-3.1-8b-instant", 
     temperature=0.0,
     api_key=GROQ_KEY,
 )
