@@ -553,7 +553,7 @@ def run(args):
             gen_prompt_list.append(full_p)
 
         print("GEN PROMPT LIST :", gen_prompt_list[0])
-
+        """
         full_outputs, model_only_outputs = generate_with_model(
             gen_prompt_list,
             tokenizer,
@@ -563,7 +563,9 @@ def run(args):
         )                
         save_path = f"/saved_results/slice_{s_pct}_{e_pct}.json"
         save_generation_results(save_path, gen_prompt_list, model_only_outputs, full_outputs)
-
+        """
+        
+        save_path = f"/saved_results/slice_{s_pct}_{e_pct}.json"
         
         run_judge_only(save_path)
         
