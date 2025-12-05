@@ -479,8 +479,6 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
         print(model_only_text)
         print("="*80 + "\n")
         
-        break
-        
     return full_outputs,  model_only_outputs
 
 def run(args):
