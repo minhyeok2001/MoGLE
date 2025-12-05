@@ -13,6 +13,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from utils import inject_single_lora
 from module import SingleLoraLinear
+import wandb
 
 
 MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
@@ -245,6 +246,14 @@ def generate_with_model_batched(
 
 
 def run(args):
+    
+    wandb.init(
+        project="MoLE_layerwise",
+        config={
+            "layer_slices": args.layer_slice
+        },
+    )
+        
     device = "cuda"
     
     df = preprocess_csv("eval.csv", args.type)
