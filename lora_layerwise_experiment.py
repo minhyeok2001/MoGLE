@@ -21,7 +21,7 @@ import wandb
 GROQ_KEY = os.environ["GROQ_API_KEY"]
 
 SOTA1 = ChatGroq(
-    model="meta-llama/llama-prompt-guard-2-86m",
+    model="meta-llama/llama-4-scout-17b-16e-instruct",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
@@ -555,7 +555,7 @@ def run(args):
             gen_prompt_list.append(full_p)
 
         print("GEN PROMPT LIST :", gen_prompt_list[0])
-        
+        """
         full_outputs, model_only_outputs = generate_with_model(
             gen_prompt_list,
             tokenizer,
@@ -563,10 +563,9 @@ def run(args):
             device=device,
             max_new_tokens=args.max_new_tokens,
         )                
-        
-        save_path = f"saved_results/slice_{s_pct}_{e_pct}.json"
         save_generation_results(save_path, gen_prompt_list, model_only_outputs, full_outputs)
-        
+        """
+        save_path = f"saved_results/slice_{s_pct}_{e_pct}.json"
         run_judge_only(save_path)
         
         #all_llm_judge_scores = run_llm_judge_for_all_criteria(gen_prompt_list, model_only_outputs)
