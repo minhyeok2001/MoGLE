@@ -19,7 +19,7 @@ import wandb
 GROQ_KEY = os.environ["GROQ_API_KEY"]
 
 SOTA1 = ChatGroq(
-    model="qwen/qwen3-32b",
+    model="meta-llama/llama-prompt-guard-2-86m",
     temperature=0.0,
     api_key=GROQ_KEY,
 )
@@ -437,8 +437,6 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
         print(model_only_text)
         print("="*80 + "\n")
         
-        break
-
     return full_outputs,  model_only_outputs
 
 def run(args):
