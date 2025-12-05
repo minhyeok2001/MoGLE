@@ -555,7 +555,7 @@ def run(args):
             gen_prompt_list.append(full_p)
 
         print("GEN PROMPT LIST :", gen_prompt_list[0])
-        """
+
         full_outputs, model_only_outputs = generate_with_model(
             gen_prompt_list,
             tokenizer,
@@ -564,13 +564,13 @@ def run(args):
             max_new_tokens=args.max_new_tokens,
         )                
         save_generation_results(save_path, gen_prompt_list, model_only_outputs, full_outputs)
-        """
-        save_path = f"saved_results/slice_{s_pct}_{e_pct}.json"
+
+        save_path = f"/saved_results/slice_{s_pct}_{e_pct}.json"
         run_judge_only(save_path)
         
-        #all_llm_judge_scores = run_llm_judge_for_all_criteria(gen_prompt_list, model_only_outputs)
+        all_llm_judge_scores = run_llm_judge_for_all_criteria(gen_prompt_list, model_only_outputs)
 
-        #judge_metrics = summarize_llm_judge_all(all_llm_judge_scores, prefix="layerwise_")
+        judge_metrics = summarize_llm_judge_all(all_llm_judge_scores, prefix="layerwise_")
             
 
 if __name__ == "__main__":
