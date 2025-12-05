@@ -225,6 +225,8 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
             temperature=0.7,
             top_p=0.9,
             pad_token_id=tokenizer.eos_token_id,
+            repetition_penalty=1.1,
+            no_repeat_ngram_size=4,  
         )
 
         full_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
