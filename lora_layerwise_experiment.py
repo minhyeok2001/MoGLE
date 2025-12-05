@@ -105,6 +105,7 @@ def preprocess_csv(csv_path, split_type="all"):
             f"user: {u2}",
             f"assistant: {a2}",
             f"user: {u3}",
+            
         ])
         target_v3 = prompt_v3 + "\nassistant: " + GT3
 
@@ -237,10 +238,12 @@ def generate_with_model_batched(
 
             gen_ids = seq[real_input_len:]
             model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
-
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print("idx : ", j)
             print("full_outs : ", full_text)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             print("model_only_outs : ", model_only_text)
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
 
 
 def run(args):
@@ -302,7 +305,11 @@ def run(args):
 
         model = base_model.to(device)
         model.eval()
+        
+        gen_prompt_list = [p + "\nassistant:" for p in prompt_list]
 
+        print("GEN PROMPT LIST :", gen_prompt_list[0])
+        
         generate_with_model_batched(
             prompt_list,
             tokenizer,
@@ -311,6 +318,7 @@ def run(args):
             batch_size=args.gen_batch_size,
             max_new_tokens=args.max_new_tokens,
         )
+        
 
 
 if __name__ == "__main__":
@@ -350,7 +358,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=768,
+        default=512,
     )
 
     args = parser.parse_args()
