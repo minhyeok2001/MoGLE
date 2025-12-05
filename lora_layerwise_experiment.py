@@ -243,7 +243,7 @@ def generate_with_model_batched(
 
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             print("idx : ", j)
-            print("inputs : ", full_text)
+            print("inputs : ", inputs)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             print("model_only_outs : ", model_only_text)
             print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
@@ -308,7 +308,16 @@ def run(args):
         model = base_model.to(device)
         model.eval()
         
-        gen_prompt_list = [p + "\nassistant:" for p in prompt_list]
+        system_prefix = (
+            "system: You are an AI assistant. "
+            "Continue the conversation ONLY as 'assistant:'. "
+            "Never write lines starting with 'user:'."
+        )
+
+        gen_prompt_list = []
+        for p in prompt_list:
+            full_p = system_prefix + "\n" + p + "\nassistant:"
+            gen_prompt_list.append(full_p)
 
         print("GEN PROMPT LIST :", gen_prompt_list[0])
         
