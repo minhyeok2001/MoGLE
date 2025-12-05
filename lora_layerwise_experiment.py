@@ -44,12 +44,6 @@ SOTA4 = ChatGroq(
     api_key=GROQ_KEY,
 )
 
-SOTA5 = ChatGroq(
-    model="allam-2-7b",
-    temperature=0.0,
-    api_key=GROQ_KEY,
-)
-
 evaluation_criteria = {
     "vividness": """
     **1. Descriptive Vividness & Immersion**
@@ -150,7 +144,6 @@ def llm_judge_criterion(criterion_text, user_input, response_only):
         "judge2": judge_single_criterion(SOTA2, criterion_text, user_input, response_only),
         "judge3": judge_single_criterion(SOTA3, criterion_text, user_input, response_only),
         "judge4": judge_single_criterion(SOTA4, criterion_text, user_input, response_only),
-        "judge5": judge_single_criterion(SOTA5, criterion_text, user_input, response_only),
     }
     avg = sum(base_scores.values()) / len(base_scores)
 
@@ -209,14 +202,12 @@ def summarize_llm_judge_all(all_scores, prefix=""):
         judge2_list = [s["judge2"] for s in score_list]
         judge3_list = [s["judge3"] for s in score_list]
         judge4_list = [s["judge4"] for s in score_list]
-        judge5_list = [s["judge5"] for s in score_list]
         avg_list    = [s["avg"]    for s in score_list]
 
         m1 = mean(judge1_list)
         m2 = mean(judge2_list)
         m3 = mean(judge3_list)
         m4 = mean(judge4_list)
-        m5 = mean(judge5_list)
         ma = mean(avg_list)
 
         print(f"\n[{crit_key}]")
@@ -224,14 +215,12 @@ def summarize_llm_judge_all(all_scores, prefix=""):
         print(f"  judge2 avg: {m2:.4f}")
         print(f"  judge3 avg: {m3:.4f}")
         print(f"  judge4 avg: {m4:.4f}")
-        print(f"  judge5 avg: {m5:.4f}")
         print(f"  overall avg: {ma:.4f}")
 
         metrics[f"{prefix}{crit_key}_judge1_avg"] = m1
         metrics[f"{prefix}{crit_key}_judge2_avg"] = m2
         metrics[f"{prefix}{crit_key}_judge3_avg"] = m3
         metrics[f"{prefix}{crit_key}_judge4_avg"] = m4
-        metrics[f"{prefix}{crit_key}_judge5_avg"] = m5
         metrics[f"{prefix}{crit_key}_overall_avg"] = ma
 
     print("======================================================\n")
