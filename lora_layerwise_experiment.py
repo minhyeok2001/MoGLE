@@ -193,12 +193,22 @@ def zero_out_lora_outside_layer_range(
             
 @torch.no_grad()
 def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_tokens=512):
-    full_outputs = []        # 프롬프트 + 모델 전체 출력
-    model_only_outputs = []  # 모델 생성 부분만
+    full_outputs = []
+    model_only_outputs = []
+
+    def cut_before_user(text: str):
+        lines = text.splitlines()
+        safe = []
+        for line in lines:
+            if line.strip().startswith("user:"):
+                break
+            elif line.strip().startswith("user:"):
+                break
+            safe.append(line)
+        return "\n".join(safe).rstrip()
 
     for p in prompt_list:
 
-        # === 1) 인풋 토크나이징 ===
         inputs = tokenizer(
             p,
             return_tensors="pt",
@@ -208,7 +218,6 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
 
         input_ids = inputs["input_ids"]
 
-        # === 2) 생성 ===
         out_ids = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
@@ -218,25 +227,21 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
             pad_token_id=tokenizer.eos_token_id,
         )
 
-        # === 3) 전체 출력 === 
         full_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-
-        # === 4) 프롬프트 문자열 ===
         prompt_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
 
-        # === 5) 프롬프트 부분 제거 (문자열 기반 → 가장 안정적) ===
         if full_text.startswith(prompt_text):
-            model_only_text = full_text[len(prompt_text):].lstrip()
+            raw_model_part = full_text[len(prompt_text):].lstrip()
         else:
-            # fallback 토큰 기준
             gen_ids = out_ids[0][input_ids.shape[1]:]
-            model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip()
+            raw_model_part = tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip()
 
-        # === 6) 저장 ===
+        # ← 여기서 user: 등장하면 그 이전까지 잘라냄
+        model_only_text = cut_before_user(raw_model_part)
+
         full_outputs.append(full_text)
         model_only_outputs.append(model_only_text)
 
-        # === 7) 보기 좋게 출력 ===
         print("\n" + "="*80)
         print("[INPUT PROMPT]")
         print(p)
@@ -244,7 +249,7 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
         print(model_only_text)
         print("="*80 + "\n")
 
-    return full_outputs, model_only_outputs  
+    return full_outputs, model_only_outputs
 
 def run(args):
     
