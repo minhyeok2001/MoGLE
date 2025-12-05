@@ -202,7 +202,7 @@ def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_to
         for line in lines:
             if line.strip().startswith("user:"):
                 break
-            elif line.strip().startswith("user:"):
+            elif line.strip().startswith("assistant:"):
                 break
             safe.append(line)
         return "\n".join(safe).rstrip()
