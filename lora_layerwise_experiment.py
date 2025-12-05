@@ -189,35 +189,26 @@ def zero_out_lora_outside_layer_range(
                 module.lora_A.weight.zero_()
                 module.lora_B.weight.zero_()
 
+
+            
 @torch.no_grad()
-def generate_with_model_batched(
-    prompt_list,
-    tokenizer,
-    model,
-    device="cuda",
-    batch_size=4,
-    max_new_tokens=512,
-):
-    full_outputs = []
-    model_only_outputs = []
-    
-    tokenizer.padding_side = "left"
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token 
+def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_tokens=512):
+    full_outputs = []        # 프롬프트 + 모델 전체 출력
+    model_only_outputs = []  # 모델 생성 부분만
 
-    for i in range(0, len(prompt_list), batch_size):
-        batch_prompts = prompt_list[i : i + batch_size]
+    for p in prompt_list:
 
+        # === 1) 인풋 토크나이징 ===
         inputs = tokenizer(
-            batch_prompts,
+            p,
             return_tensors="pt",
-            padding=True,
             truncation=True,
             max_length=2048,
         ).to(device)
 
         input_ids = inputs["input_ids"]
 
+        # === 2) 생성 ===
         out_ids = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
@@ -225,28 +216,35 @@ def generate_with_model_batched(
             temperature=0.7,
             top_p=0.9,
             pad_token_id=tokenizer.eos_token_id,
-            repetition_penalty=1.1,
-            no_repeat_ngram_size=4,  
         )
 
-        for j in range(len(batch_prompts)):
-            seq = out_ids[j]
-            full_text = tokenizer.decode(seq, skip_special_tokens=True)
-            input_text = tokenizer.decode(input_ids[j], skip_special_tokens=True)
-            model_only_text = full_text
-            if full_text.startswith(input_text):
-                model_only_text = full_text[len(input_text):].lstrip()
-            else:
-                real_input_len = (input_ids[j] != tokenizer.pad_token_id).sum().item()
-                gen_ids = seq[real_input_len:]
-                model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
+        # === 3) 전체 출력 === 
+        full_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
 
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            print("idx : ", j)
-            print("inputs : ", inputs)
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            print("model_only_outs : ", model_only_text)
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        # === 4) 프롬프트 문자열 ===
+        prompt_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
+
+        # === 5) 프롬프트 부분 제거 (문자열 기반 → 가장 안정적) ===
+        if full_text.startswith(prompt_text):
+            model_only_text = full_text[len(prompt_text):].lstrip()
+        else:
+            # fallback 토큰 기준
+            gen_ids = out_ids[0][input_ids.shape[1]:]
+            model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip()
+
+        # === 6) 저장 ===
+        full_outputs.append(full_text)
+        model_only_outputs.append(model_only_text)
+
+        # === 7) 보기 좋게 출력 ===
+        print("\n" + "="*80)
+        print("[INPUT PROMPT]")
+        print(p)
+        print("\n[MODEL ONLY OUTPUT]")
+        print(model_only_text)
+        print("="*80 + "\n")
+
+    return full_outputs, model_only_outputs  
 
 def run(args):
     
@@ -321,12 +319,11 @@ def run(args):
 
         print("GEN PROMPT LIST :", gen_prompt_list[0])
         
-        generate_with_model_batched(
+        generate_with_model(
             gen_prompt_list,
             tokenizer,
             model,
             device=device,
-            batch_size=args.gen_batch_size,
             max_new_tokens=args.max_new_tokens,
         )
         
