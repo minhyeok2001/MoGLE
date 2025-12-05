@@ -241,7 +241,7 @@ def generate_with_model_batched(
             full_outputs.append(full_text)
             model_only_outputs.append(model_only_text)
 
-    return full_outputs, model_only_outputs
+        return full_outputs, model_only_outputs
 
 
 
