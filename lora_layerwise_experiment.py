@@ -250,7 +250,7 @@ def run(args):
     wandb.init(
         project="MoLE_layerwise",
         config={
-            "layer_slices": args.layer_slice
+            "layer_slices": args.layer_slices
         },
     )
         
