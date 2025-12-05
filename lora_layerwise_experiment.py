@@ -238,11 +238,9 @@ def generate_with_model_batched(
             gen_ids = seq[real_input_len:]
             model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
 
-            full_outputs.append(full_text)
-            model_only_outputs.append(model_only_text)
-
-        return full_outputs, model_only_outputs
-
+            print("full_outs : ", full_text)
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print("model_only_outs : ", model_only_text)
 
 
 def run(args):
@@ -305,7 +303,7 @@ def run(args):
         model = base_model.to(device)
         model.eval()
 
-        full_outs, model_only_outs = generate_with_model_batched(
+        generate_with_model_batched(
             prompt_list,
             tokenizer,
             model,
@@ -314,10 +312,6 @@ def run(args):
             max_new_tokens=args.max_new_tokens,
         )
 
-        
-        print("full_outs : ", full_outs)
-        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-        print("model_only_outs : ", model_only_outs)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
