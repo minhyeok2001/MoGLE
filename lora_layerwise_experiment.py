@@ -9,6 +9,8 @@ import torch.nn as nn
 import pandas as pd
 from tqdm import tqdm
 
+import json
+
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from utils import inject_single_lora
@@ -102,7 +104,46 @@ You must assess how well the model satisfies this specific criterion, considerin
     except:
         return 0.0
 
+def load_generation_results(load_path):
+    with open(load_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
+    prompt_list = [d["prompt"] for d in data]
+    model_only_outputs = [d["model_only_output"] for d in data]
+
+    return prompt_list, model_only_outputs
+
+def save_generation_results(save_path, prompt_list, model_only_outputs, full_outputs):
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    data = []
+    for p, mo, fo in zip(prompt_list, model_only_outputs, full_outputs):
+        data.append({
+            "prompt": p,
+            "model_only_output": mo,
+            "full_output": fo
+        })
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print(f"[Saved] generation results → {save_path}")
+
+
+
+def run_judge_only(json_file):
+
+    print(f"[Load] {json_file}")
+    with open(json_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    prompt_list = [d["prompt"] for d in data]
+    model_only_outputs = [d["model_only_output"] for d in data]
+    print(f"[Run Judge] {len(prompt_list)} samples")
+    
+    all_llm_judge_scores = run_llm_judge_for_all_criteria(prompt_list, model_only_outputs)
+
+    metrics = summarize_llm_judge_all(all_llm_judge_scores, prefix="judge_only_")
+
+        
+        
 def llm_judge_criterion(criterion_text, user_input, response_only):
     base_scores = {
         "judge1": judge_single_criterion(SOTA1, criterion_text, user_input, response_only),
@@ -317,6 +358,7 @@ def load_tokenizer():
     return tokenizer
 
 
+
 def load_base_model_4bit():
     if not torch.cuda.is_available():
         raise RuntimeError("무조건 CUDA로 하셔야함")
@@ -519,9 +561,15 @@ def run(args):
             device=device,
             max_new_tokens=args.max_new_tokens,
         )                
-        all_llm_judge_scores = run_llm_judge_for_all_criteria(gen_prompt_list, model_only_outputs)
+        
+        save_path = f"saved_results/slice_{s_pct}_{e_pct}.json"
+        save_generation_results(save_path, gen_prompt_list, model_only_outputs, full_outputs)
+        
+        run_judge_only(save_path)
+        
+        #all_llm_judge_scores = run_llm_judge_for_all_criteria(gen_prompt_list, model_only_outputs)
 
-        judge_metrics = summarize_llm_judge_all(all_llm_judge_scores, prefix="layerwise_")
+        #judge_metrics = summarize_llm_judge_all(all_llm_judge_scores, prefix="layerwise_")
             
 
 if __name__ == "__main__":
