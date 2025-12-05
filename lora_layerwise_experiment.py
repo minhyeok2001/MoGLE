@@ -16,6 +16,8 @@ from module import SingleLoraLinear
 from langchain_groq import ChatGroq  
 import wandb
 
+GROQ_KEY = os.environ["GROQ_API_KEY"]
+
 SOTA1 = ChatGroq(
     model="qwen/qwen3-32b",
     temperature=0.0,
