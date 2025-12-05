@@ -563,9 +563,10 @@ def run(args):
             device=device,
             max_new_tokens=args.max_new_tokens,
         )                
+        save_path = f"/saved_results/slice_{s_pct}_{e_pct}.json"
         save_generation_results(save_path, gen_prompt_list, model_only_outputs, full_outputs)
 
-        save_path = f"/saved_results/slice_{s_pct}_{e_pct}.json"
+        
         run_judge_only(save_path)
         
         all_llm_judge_scores = run_llm_judge_for_all_criteria(gen_prompt_list, model_only_outputs)
