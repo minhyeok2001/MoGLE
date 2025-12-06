@@ -443,7 +443,7 @@ def eval_pipe(prompt_list, answer_list, answer_only_list, gt_list, gt_only_list,
             context = context_map.get("default", "")
 
         print("============ SOTA COMPARISON 실행중... ============")
-        sota_scores = sota_comparison(response_cumulative, genre, sota_centroids)
+        sota_scores = sota_comparison(response_cumSulative, genre, sota_centroids)
         print("[sota_comparison_scores]", sota_scores)
 
         print("============ LLM JUDGE 실행중... ============")

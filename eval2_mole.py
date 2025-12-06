@@ -154,67 +154,28 @@ def preprocess_csv(csv_path, split_type):
     return df
 
 
+
 @torch.no_grad()
 def generate_with_model(prompt_list, tokenizer, model, device="cuda", max_new_tokens=512):
     full_outputs = []
     model_only_outputs = []
 
+    def cut_before_user(text: str):
+        lines = text.splitlines()
+        safe = []
+        for line in lines:
+            if line.strip().startswith("user"):
+                break
+            elif line.strip().startswith("assistant"):
+                break
+            safe.append(line)
+        return "\n".join(safe).rstrip()
+
     for p in prompt_list:
+
         inputs = tokenizer(
             p,
             return_tensors="pt",
-            truncation=True,
-            max_length=2048,
-        ).to(device)
-
-        input_ids = inputs["input_ids"]
-
-        out_ids = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
-            pad_token_id=tokenizer.eos_token_id,
-        )
-
-        # 전체 출력 (prompt + model)
-        full_output = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-
-        # 모델이 새로 생성한 부분만
-        generated_ids = out_ids[0][input_ids.shape[1]:]
-        model_only_output = tokenizer.decode(generated_ids, skip_special_tokens=True)
-
-        full_outputs.append(full_output)
-        model_only_outputs.append(model_only_output)
-
-    return full_outputs, model_only_outputs
-
-
-### 배치처리방식
-@torch.no_grad()
-def generate_with_model_batched(
-    prompt_list,
-    tokenizer,
-    model,
-    device="cuda",
-    batch_size=4,
-    max_new_tokens=512,
-):
-    full_outputs = []
-    model_only_outputs = []
-    
-    tokenizer.padding_side = "left"
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token_id or tokenizer.eos_token
-
-    for i in range(0, len(prompt_list), batch_size):
-        batch_prompts = prompt_list[i : i + batch_size]
-
-        inputs = tokenizer(
-            batch_prompts,
-            return_tensors="pt",
-            padding=True,
             truncation=True,
             max_length=2048,
         ).to(device)
@@ -232,20 +193,30 @@ def generate_with_model_batched(
             no_repeat_ngram_size=4,  
         )
 
-        for j in range(len(batch_prompts)):
-            seq = out_ids[j]
-            full_text = tokenizer.decode(seq, skip_special_tokens=True)
+        full_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+        prompt_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
 
-            real_input_len = (input_ids[j] != tokenizer.pad_token_id).sum().item()
+        if full_text.startswith(prompt_text):
+            raw_model_part = full_text[len(prompt_text):].lstrip()
+        else:
+            gen_ids = out_ids[0][input_ids.shape[1]:]
+            raw_model_part = tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip()
+            
+        model_only_text = cut_before_user(raw_model_part)
 
-            gen_ids = seq[real_input_len:]
-            model_only_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
+        full_outputs.append(full_text)
+        model_only_outputs.append(model_only_text)
 
-            full_outputs.append(full_text)
-            model_only_outputs.append(model_only_text)
-
-    return full_outputs, model_only_outputs
-
+        print("\n" + "="*80)
+        print("[INPUT PROMPT]")
+        print(p)
+        print("\n[MODEL ONLY OUTPUT]")
+        print(model_only_text)
+        print("="*80 + "\n")
+        
+        break
+        
+    return full_outputs,  model_only_outputs
 
 # =================== SOTA COMPARISON ====================
 async def get_sota_outputs(prompt):
@@ -658,12 +629,11 @@ def run(args):
     all_mole_scores = scores_v2_mole
     summarize_scores(all_mole_scores, title="MoLE MODEL SUMMARY")
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gate_weight", type=str, required=True)
     parser.add_argument("--type",type=str,required=True)
-    parser.add_argument("--max_new_token",type=int,default=768)
+    parser.add_argument("--max_new_token",type=int,default=512)
     parser.add_argument("--batch_size", type=int, default=4)
     args = parser.parse_args()
 
