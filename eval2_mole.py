@@ -119,6 +119,8 @@ def preprocess_csv(csv_path, split_type):
         df = df.iloc[: n // 2].reset_index(drop=True)
     elif split_type == "B":
         df = df.iloc[n // 2 :].reset_index(drop=True)
+    elif split_type =="debug":
+        df = df.iloc[0]
     else:
         raise RuntimeError("유효한 TYPE 주세요")
 
@@ -622,10 +624,8 @@ def run(args):
         print(only_out)
         print("---------------")
         
-        
-
     print("\n===== eval =====")
-    scores_v2_mole = eval_pipe(prompt_list_v2[0], answer_list_v2_mole, answer_only_list_v2_mole, gt_cumulative_list_v2, gt_list_v2, genre_list, context_map)
+    scores_v2_mole = eval_pipe(prompt_list_v2, answer_list_v2_mole, answer_only_list_v2_mole, gt_cumulative_list_v2, gt_list_v2, genre_list, context_map)
     all_mole_scores = scores_v2_mole
     summarize_scores(all_mole_scores, title="MoLE MODEL SUMMARY")
 
