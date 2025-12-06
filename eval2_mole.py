@@ -497,7 +497,7 @@ def summarize_scores(all_scores, title=None, prefix=""):
 def run(args):
     
     wandb.init(
-        project="MoLE_inference",
+        project="MoLE_inference2",
         config={
             "gate_weight": args.gate_weight,
             "type": args.type,
