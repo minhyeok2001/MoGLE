@@ -533,13 +533,20 @@ def run(args):
     gt_cumulative_list_v2 = df["target_v2"].tolist()
     
     
-    print("\n===== Prompt v1 (sample) =====")
-    for i in range(min(3, len(prompt_list_v1))):
-        print(f"[{i}] {prompt_list_v1[i]}\n")
+    system_prefix = (
+        "system: You are an AI assistant. "
+        "Continue the conversation ONLY as 'assistant:'. at least 100 words, at most 500 words"
+        "Never write lines starting with 'user:'."
+    )
 
-    print("\n===== Prompt v2 (sample) =====")
-    for i in range(min(3, len(prompt_list_v2))):
-        print(f"[{i}] {prompt_list_v2[i]}\n")
+    gen_prompt_list = []
+    for p in prompt_list_v2:
+        full_p = system_prefix + "\n" + p + "\nassistant:"
+        gen_prompt_list.append(full_p)
+
+    print("GEN PROMPT LIST :", gen_prompt_list[0])
+    
+    prompt_list_v2 = gen_prompt_list
     
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     if tokenizer.pad_token is None:
