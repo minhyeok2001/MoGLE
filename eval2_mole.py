@@ -625,7 +625,7 @@ def run(args):
         
 
     print("\n===== eval =====")
-    scores_v2_mole = eval_pipe(prompt_list_v2, answer_list_v2_mole, answer_only_list_v2_mole, gt_cumulative_list_v2, gt_list_v2, genre_list, context_map)
+    scores_v2_mole = eval_pipe(prompt_list_v2[0], answer_list_v2_mole, answer_only_list_v2_mole, gt_cumulative_list_v2, gt_list_v2, genre_list, context_map)
     all_mole_scores = scores_v2_mole
     summarize_scores(all_mole_scores, title="MoLE MODEL SUMMARY")
 
