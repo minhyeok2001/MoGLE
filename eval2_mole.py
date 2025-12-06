@@ -601,7 +601,7 @@ def run(args):
         p.requires_grad = False    
 
     print("\n\n======== Running MoLE ========")
-    answer_list_v2_mole, answer_only_list_v2_mole = generate_with_model(prompt_list_v2, tokenizer, model_mole, device=device,batch_size=args.batch_size, max_new_tokens=max_new_tokens)
+    answer_list_v2_mole, answer_only_list_v2_mole = generate_with_model(prompt_list_v2, tokenizer, model_mole, device=device, max_new_tokens=max_new_tokens)
 
 
     print("\n===== MoLE raw outputs =====")
