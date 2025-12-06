@@ -120,7 +120,7 @@ def preprocess_csv(csv_path, split_type):
     elif split_type == "B":
         df = df.iloc[n // 2 :].reset_index(drop=True)
     elif split_type =="debug":
-        df = df.iloc[0].reset_index(drop=True)
+        df = df.iloc[0:1].reset_index(drop=True)
     else:
         raise RuntimeError("유효한 TYPE 주세요")
 
