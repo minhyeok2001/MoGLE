@@ -339,7 +339,7 @@ def genre_classifier(user_input, response_cumulative, genre):
     else:
         raise RuntimeError("HOLLLA~~~~")
 
-    transition_prob = soft_labels.get(prev_genre, 0.0) + soft_labels.get(new_genre, 0.0)
+    transition_prob = soft_labels.get(prev_genre, 0.0) + soft_labels.get(new_genre, 0.0) * 2
 
     return {
         "transition_prob": transition_prob,   
@@ -407,8 +407,7 @@ def summarize_scores(all_scores, title=None, prefix=""):
     judge_avg_list = [s["llm_judge_score"]["avg"] for s in all_scores]
 
     style_list = [s["style_distance_score"] for s in all_scores]
-
-    # 🔥 여기 부분 수정
+    
     transition_prob_list = [
         s["genre_classifier_score"]["transition_prob"] for s in all_scores
     ]
@@ -558,7 +557,7 @@ def run(args):
         bnb_4bit_use_double_quant=True,
         bnb_4bit_quant_type="nf4",
     )
-
+z
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         quantization_config=bnb_config,
