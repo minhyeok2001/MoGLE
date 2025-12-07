@@ -340,6 +340,7 @@ def genre_classifier(user_input, response_cumulative, genre):
         raise RuntimeError("HOLLLA~~~~")
 
     transition_prob = soft_labels.get(prev_genre, 0.0) + soft_labels.get(new_genre, 0.0) * 1.5
+    ## 1.5배로 수정 
 
     return {
         "transition_prob": transition_prob,   
