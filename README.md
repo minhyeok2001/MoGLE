@@ -1,5 +1,7 @@
 # MOGLE
 
+You can check whole process from ai-intensive-final.pdf
+
 
 ```
 !python train_single_lora.py --genre fantasy --epochs 1 --max_len 128
