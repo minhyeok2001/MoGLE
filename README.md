@@ -205,3 +205,6 @@ Nevertheless, our evaluation is conducted on a relatively limited and narrowly s
 As a result, while the trends are consistent, the absolute improvements should be interpreted with caution. 
 
 We expect that scaling to larger and more diverse datasets will further clarify and potentially amplify the advantages of MoGLE, particularly in complex genre-transition scenarios.
+
+
+**You can find the full project details in ai-intensive-final.pdf.**
