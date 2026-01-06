@@ -2,9 +2,9 @@
 
 MoGLE is a MoE–based architecture designed to enhance genre-specific immersion of LLMs for Tabletop Role-Playing Games.
 
-While LLM-based GMs enable personalized and always-available storytelling, they often suffer from genre inconsistency, 
+While LLM-based GMs enable personalized and always-available storytelling, 
 
-where narrative tone unexpectedly drifts (see the details in ai-intensive-final.pdf)
+they often suffer from genre inconsistency, where narrative tone unexpectedly drifts (see the details in ai-intensive-final.pdf)
 
 By dynamically mixing multiple genre-specialized LoRA adapters, 
 
@@ -28,7 +28,7 @@ There are Two-Phase Training Pipeline to train this model, (1) Single-LoRA Speci
 
 Each genre-specific LoRA is trained independently to specialize in its own narrative style.
 
-We have 5 different genres in our dataset, So 5 different LoRAs are expected to be trained
+We have 5 different genres in our dataset, So 5 different LoRAs are expected to be trained.
 
 <p align="center">
    <img width="400" height="400" alt="image (3)" src="https://github.com/user-attachments/assets/a16484fc-826d-41c9-a17d-5b49e1553508" /><br>
